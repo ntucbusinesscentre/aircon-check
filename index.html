@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aircon Reconciliation | NTUC Business Centre</title>
+    <meta name="description" content="Drag-and-drop aircon rental reconciliation tool for NTUC Business Centre. Cross-check Form F PDFs against landlord billing.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- Ambient background orbs -->
+    <div class="bg-orb bg-orb-1"></div>
+    <div class="bg-orb bg-orb-2"></div>
+    <div class="bg-orb bg-orb-3"></div>
+
+    <main id="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-icon">
+                <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+                    <rect x="2" y="8" width="32" height="22" rx="3" stroke="url(#grad1)" stroke-width="2"/>
+                    <path d="M10 8V5a3 3 0 013-3h10a3 3 0 013 3v3" stroke="url(#grad1)" stroke-width="2"/>
+                    <line x1="10" y1="16" x2="26" y2="16" stroke="url(#grad1)" stroke-width="2" stroke-linecap="round"/>
+                    <line x1="10" y1="21" x2="20" y2="21" stroke="url(#grad1)" stroke-width="2" stroke-linecap="round"/>
+                    <line x1="10" y1="26" x2="23" y2="26" stroke="url(#grad1)" stroke-width="2" stroke-linecap="round"/>
+                    <defs>
+                        <linearGradient id="grad1" x1="0" y1="0" x2="36" y2="36">
+                            <stop stop-color="#6C63FF"/>
+                            <stop offset="1" stop-color="#4ECDC4"/>
+                        </linearGradient>
+                    </defs>
+                </svg>
+            </div>
+            <div>
+                <h1>Aircon Reconciliation</h1>
+                <p class="subtitle">NTUC Business Centre · Cross-check tool</p>
+            </div>
+        </header>
+
+        <!-- Drop Zone -->
+        <section id="drop-zone-section">
+            <div id="drop-zone" class="drop-zone">
+                <div class="drop-zone-content">
+                    <div class="drop-icon">
+                        <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+                            <path d="M8 40l24 16 24-16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.3"/>
+                            <path d="M8 32l24 16 24-16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+                            <path d="M8 24l24 16 24-16-24-16L8 24z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M32 40V24" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+                        </svg>
+                    </div>
+                    <h2>Drop your files here</h2>
+                    <p>Drag & drop PDFs + landlord Excel, or a folder</p>
+                    <div class="drop-zone-divider">
+                        <span>or</span>
+                    </div>
+                    <div class="btn-row">
+                        <button id="btn-pick-files" class="btn btn-secondary" type="button">
+                            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M15 11v3a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 013 14v-3M12 6L9 3 6 6M9 3v9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            Pick Files
+                        </button>
+                        <button id="btn-pick-folder" class="btn btn-secondary" type="button">
+                            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M16.5 14.25c0 .414-.336.75-.75.75H2.25a.75.75 0 01-.75-.75V3.75c0-.414.336-.75.75-.75h4.629a.75.75 0 01.53.22L9 4.808h6.75c.414 0 .75.336.75.75v8.692z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            Pick Folder
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <!-- Hidden file inputs -->
+            <input type="file" id="file-input" multiple accept=".pdf,.xlsx" hidden>
+            <input type="file" id="folder-input" webkitdirectory hidden>
+        </section>
+
+        <!-- File List -->
+        <section id="file-list-section" class="file-list-section hidden">
+            <div class="file-list-header">
+                <h3>
+                    <span id="file-count-badge" class="badge">0</span>
+                    Files ready
+                </h3>
+                <div class="file-list-actions">
+                    <button id="btn-add-more" class="btn btn-ghost" type="button">+ Add more</button>
+                    <button id="btn-clear" class="btn btn-ghost btn-danger" type="button">Clear all</button>
+                </div>
+            </div>
+            <ul id="file-list" class="file-list"></ul>
+            <button id="btn-run" class="btn btn-primary btn-lg" type="button">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 2v16M2 10h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                Run Reconciliation
+            </button>
+        </section>
+
+        <!-- Processing State -->
+        <section id="processing-section" class="processing-section hidden">
+            <div class="spinner"></div>
+            <h3>Processing your files…</h3>
+            <p class="processing-sub">Parsing PDFs, matching bookings, generating report</p>
+        </section>
+
+        <!-- Results -->
+        <section id="results-section" class="results-section hidden">
+            <div class="results-header">
+                <div class="results-icon">✓</div>
+                <h2>Reconciliation Complete</h2>
+                <p id="results-subtitle" class="results-subtitle"></p>
+            </div>
+
+            <div id="summary-cards" class="summary-cards"></div>
+
+            <div class="results-details">
+                <div class="detail-row">
+                    <span class="detail-label">Total landlord rows</span>
+                    <span id="detail-total-rows" class="detail-value">–</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">PDF bookings parsed</span>
+                    <span id="detail-total-pdfs" class="detail-value">–</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">PDFs not on bill</span>
+                    <span id="detail-unbilled" class="detail-value">–</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Total billed amount</span>
+                    <span id="detail-total-billed" class="detail-value">–</span>
+                </div>
+            </div>
+
+            <!-- Processing log -->
+            <details class="log-details">
+                <summary>Processing log</summary>
+                <pre id="log-output" class="log-output"></pre>
+            </details>
+
+            <div class="results-actions">
+                <button id="btn-download-again" class="btn btn-primary" type="button">
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M15 11v3a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 013 14v-3M6 8l3 3 3-3M9 11V3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    Download Again
+                </button>
+                <button id="btn-new" class="btn btn-secondary" type="button">
+                    Start New
+                </button>
+            </div>
+        </section>
+
+        <!-- Error State -->
+        <section id="error-section" class="error-section hidden">
+            <div class="error-icon">✕</div>
+            <h3>Something went wrong</h3>
+            <p id="error-message" class="error-message"></p>
+            <button id="btn-retry" class="btn btn-secondary" type="button">Try Again</button>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p>Built for NTUC Business Centre</p>
+    </footer>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
