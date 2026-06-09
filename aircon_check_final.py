@@ -186,6 +186,14 @@ MONTHS = {
     "jan": "01", "feb": "02", "mar": "03", "apr": "04",
     "jun": "06", "jul": "07", "aug": "08", "sep": "09",
     "sept": "09", "oct": "10", "nov": "11", "dec": "12",
+    # Common PDF text-extraction typo when "February" is split as "Febrau ry".
+    "febraury": "02",
+}
+
+MONTH_LABELS = {
+    "01": "January", "02": "February", "03": "March", "04": "April",
+    "05": "May", "06": "June", "07": "July", "08": "August",
+    "09": "September", "10": "October", "11": "November", "12": "December",
 }
 
 def parse_date_text(s):
@@ -229,7 +237,7 @@ def parse_date_text(s):
                     year = "20" + year
                 mm = MONTHS[month_candidate]
                 iso = f"{year}-{mm}-{int(day):02d}"
-                label = f"{int(day)} {month_candidate.title()} {year}"
+                label = f"{int(day)} {MONTH_LABELS[mm]} {year}"
                 return iso, label
         return None, None
 
@@ -240,7 +248,7 @@ def parse_date_text(s):
     if len(year) == 2:
         year = "20" + year
     iso = f"{year}-{mm}-{int(day):02d}"
-    label = f"{int(day)} {month_word.title()} {year}"
+    label = f"{int(day)} {MONTH_LABELS[mm]} {year}"
     return iso, label
 
 
