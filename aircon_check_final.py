@@ -138,6 +138,9 @@ def normalise_units(text):
         tok = re.sub(r"[^A-Z0-9]", "", tok)
         if not tok:
             continue
+        # Handle compact room labels like "Rm702" / "Room702" the same as
+        # "Rm 702" / "Room 702".
+        tok = re.sub(r"^(?:ROOM|RM)(?=\d)", "", tok)
         # tokens with a digit are real unit IDs (701, 7M, L7…)
         if any(c.isdigit() for c in tok):
             out.add(tok)
