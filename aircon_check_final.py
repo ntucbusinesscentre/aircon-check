@@ -186,7 +186,7 @@ MONTHS = {
 }
 
 def parse_date_text(s):
-    """Parse '24 April 2026' or 'Wednesday, 1 April 2026' -> ('2026-04-24', '24 April 2026').
+    """Parse '24 April 2026', '24 April 26', or 'Wednesday, 1 April 2026' -> ('2026-04-24', '24 April 2026').
 
     Also handles PDF fragmentation artifacts:
       - Year split across text fragments: '01 April 2 026' -> '01 April 2026'
@@ -204,7 +204,7 @@ def parse_date_text(s):
     text = re.sub(r"(?<=\d)\s+(?=\d)", "", text)
 
     # Try the standard pattern first
-    m = re.search(r"(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", text)
+    m = re.search(r"(\d{1,2})\s+([A-Za-z]+)\s+(\d{2,4})", text)
 
     if not m:
         # Try DD/MM/YYYY
@@ -216,12 +216,14 @@ def parse_date_text(s):
         # Fallback: handle fragmented month names like "Apr il 2026" by trying to
         # find a day-then-letters-then-year pattern, allowing internal whitespace in
         # the letters part, then validating the joined letters spell a real month.
-        m3 = re.search(r"(\d{1,2})\s+([A-Za-z][A-Za-z\s]*?[A-Za-z])\s+(\d{4})", text)
+        m3 = re.search(r"(\d{1,2})\s+([A-Za-z][A-Za-z\s]*?[A-Za-z])\s+(\d{2,4})", text)
         if m3:
             day = m3.group(1)
             month_candidate = re.sub(r"\s+", "", m3.group(2)).lower()
             year = m3.group(3)
             if month_candidate in MONTHS:
+                if len(year) == 2:
+                    year = "20" + year
                 mm = MONTHS[month_candidate]
                 iso = f"{year}-{mm}-{int(day):02d}"
                 label = f"{int(day)} {month_candidate.title()} {year}"
@@ -232,6 +234,8 @@ def parse_date_text(s):
     mm = MONTHS.get(month_word.lower())
     if not mm:
         return None, None
+    if len(year) == 2:
+        year = "20" + year
     iso = f"{year}-{mm}-{int(day):02d}"
     label = f"{int(day)} {month_word.title()} {year}"
     return iso, label
