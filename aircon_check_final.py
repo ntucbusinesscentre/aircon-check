@@ -191,6 +191,8 @@ MONTHS = {
     "sept": "09", "oct": "10", "nov": "11", "dec": "12",
     # Common PDF text-extraction typo when "February" is split as "Febrau ry".
     "febraury": "02",
+    # Common PDF text-extraction typo when "January" is split as "Janau ry".
+    "janaury": "01",
 }
 
 MONTH_LABELS = {
