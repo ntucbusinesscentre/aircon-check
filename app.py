@@ -168,7 +168,6 @@ def analyse_workbooks(uploaded_files):
     room_costs = defaultdict(float)
     overlap_by_month = defaultdict(float)
     requestors = defaultdict(lambda: {"count": 0, "amount": 0.0})
-    heatmap = defaultdict(float)
     totals = {
         "billed": 0.0,
         "rows": 0,
@@ -249,28 +248,10 @@ def analyse_workbooks(uploaded_files):
             room = clean_room_label(row.get("Location (PDF)"))
             expected = to_float(row.get("Expected $"))
             overlap_hours = to_float(row.get("Overlap Hrs"))
-            hours = to_float(row.get("Hours"))
-            date_text = str(row.get("Date") or "")
-            start_text = str(row.get("Time Start") or "")
-
             room_costs[room] += expected
             savings = overlap_hours * 120.0
             bucket["overlap_savings"] += savings
             totals["overlap_savings"] += savings
-
-            weekday = ""
-            m = re.search(r"(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", date_text)
-            if m:
-                try:
-                    import datetime as dt
-                    month_lookup = {name.lower(): i for i, name in enumerate(month_name) if name}
-                    parsed_date = dt.date(int(m.group(3)), month_lookup[m.group(2).lower()], int(m.group(1)))
-                    weekday = parsed_date.strftime("%a")
-                except Exception:
-                    weekday = ""
-            if weekday and len(start_text) >= 2:
-                hour = start_text[:2]
-                heatmap[f"{weekday}|{hour}"] += hours
 
         bucket["unbilled"] += len(unbilled_rows)
         totals["unbilled"] += len(unbilled_rows)
@@ -295,10 +276,6 @@ def analyse_workbooks(uploaded_files):
         "requestors": [
             {"name": name, "count": data["count"], "amount": round(data["amount"], 2)}
             for name, data in sorted(requestors.items(), key=lambda item: item[1]["count"], reverse=True)[:10]
-        ],
-        "heatmap": [
-            {"day": key.split("|")[0], "hour": key.split("|")[1], "hours": round(value, 2)}
-            for key, value in sorted(heatmap.items())
         ],
     }
 
