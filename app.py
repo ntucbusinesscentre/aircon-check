@@ -92,8 +92,25 @@ def normalise_status(value):
     return str(value or "").strip().upper()
 
 
-def get_row_dicts(ws, header_row=1):
+def find_header_row(ws, required_headers, max_scan_rows=8):
+    """Find the row containing the expected headers, allowing intro/key rows."""
+    required = {header.lower() for header in required_headers}
+    for row_num in range(1, min(ws.max_row, max_scan_rows) + 1):
+        values = {
+            str(cell.value or "").strip().lower()
+            for cell in ws[row_num]
+            if cell.value is not None
+        }
+        if required.issubset(values):
+            return row_num
+    return 1
+
+
+def get_row_dicts(ws, header_row=1, required_headers=None):
     """Return worksheet rows as dictionaries keyed by header text."""
+    if required_headers:
+        header_row = find_header_row(ws, required_headers)
+
     headers = [
         "" if cell.value is None else str(cell.value).strip()
         for cell in ws[header_row]
@@ -191,12 +208,21 @@ def analyse_workbooks(uploaded_files):
             wb.close()
             raise ValueError(f"{filename} is not a reconciled output workbook.")
 
-        recon_rows = get_row_dicts(wb["Reconciliation"], 1)
-        pdf_rows = get_row_dicts(wb["All PDF Bookings"], 2)
+        recon_rows = get_row_dicts(
+            wb["Reconciliation"],
+            required_headers=("Date", "Amount", "Status"),
+        )
+        pdf_rows = get_row_dicts(
+            wb["All PDF Bookings"],
+            required_headers=("Date", "Location (PDF)", "Expected $"),
+        )
         unbilled_rows = []
         if "PDFs Not Billed" in wb.sheetnames:
             unbilled_rows = [
-                row for row in get_row_dicts(wb["PDFs Not Billed"], 1)
+                row for row in get_row_dicts(
+                    wb["PDFs Not Billed"],
+                    required_headers=("Date", "Location (PDF)"),
+                )
                 if row.get("Date") and not str(row.get("Date")).startswith("(")
             ]
 
