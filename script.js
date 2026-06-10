@@ -1,53 +1,65 @@
 /**
- * Aircon Reconciliation — Frontend Logic
- * Handles drag-and-drop, file management, upload, and results display.
+ * Aircon Reconciliation - Frontend Logic
+ * Handles reconciliation uploads and analytics dashboards.
  */
 
 (() => {
     "use strict";
 
-    // ---------- State ----------
-    let selectedFiles = new Map(); // filename -> File object
+    let selectedFiles = new Map();
+    let analyticsFiles = new Map();
     let currentSessionId = null;
     let currentDownloadUrl = null;
+    let currentMode = "reconcile";
+    let charts = {};
 
-    // ---------- DOM refs ----------
-    const dropZone = document.getElementById("drop-zone");
-    const dropZoneSection = document.getElementById("drop-zone-section");
-    const fileListSection = document.getElementById("file-list-section");
-    const fileList = document.getElementById("file-list");
-    const fileCountBadge = document.getElementById("file-count-badge");
-    const processingSection = document.getElementById("processing-section");
-    const resultsSection = document.getElementById("results-section");
-    const errorSection = document.getElementById("error-section");
+    const qs = (id) => document.getElementById(id);
 
-    const fileInput = document.getElementById("file-input");
-    const folderInput = document.getElementById("folder-input");
+    const tabReconcile = qs("tab-reconcile");
+    const tabAnalytics = qs("tab-analytics");
 
-    const btnPickFiles = document.getElementById("btn-pick-files");
-    const btnPickFolder = document.getElementById("btn-pick-folder");
-    const btnAddMore = document.getElementById("btn-add-more");
-    const btnClear = document.getElementById("btn-clear");
-    const btnRun = document.getElementById("btn-run");
-    const btnDownloadAgain = document.getElementById("btn-download-again");
-    const btnNew = document.getElementById("btn-new");
-    const btnRetry = document.getElementById("btn-retry");
+    const dropZone = qs("drop-zone");
+    const dropZoneSection = qs("drop-zone-section");
+    const fileListSection = qs("file-list-section");
+    const fileList = qs("file-list");
+    const fileCountBadge = qs("file-count-badge");
+    const processingSection = qs("processing-section");
+    const resultsSection = qs("results-section");
+    const errorSection = qs("error-section");
 
-    // ---------- File validation ----------
-    const ALLOWED_EXTENSIONS = new Set(["pdf", "xlsx"]);
+    const fileInput = qs("file-input");
+    const folderInput = qs("folder-input");
+
+    const btnPickFiles = qs("btn-pick-files");
+    const btnPickFolder = qs("btn-pick-folder");
+    const btnAddMore = qs("btn-add-more");
+    const btnClear = qs("btn-clear");
+    const btnRun = qs("btn-run");
+    const btnDownloadAgain = qs("btn-download-again");
+    const btnNew = qs("btn-new");
+    const btnRetry = qs("btn-retry");
+
+    const analyticsDropZone = qs("analytics-drop-zone");
+    const analyticsUploadSection = qs("analytics-upload-section");
+    const analyticsFileSection = qs("analytics-file-section");
+    const analyticsResultsSection = qs("analytics-results-section");
+    const analyticsInput = qs("analytics-input");
+    const analyticsFileList = qs("analytics-file-list");
+    const analyticsCountBadge = qs("analytics-count-badge");
+    const btnPickAnalytics = qs("btn-pick-analytics");
+    const btnAddAnalytics = qs("btn-add-analytics");
+    const btnClearAnalytics = qs("btn-clear-analytics");
+    const btnRunAnalytics = qs("btn-run-analytics");
+
+    const RECON_EXTENSIONS = new Set(["pdf", "xlsx"]);
 
     function getExtension(filename) {
         const parts = filename.split(".");
         return parts.length > 1 ? parts.pop().toLowerCase() : "";
     }
 
-    function isRelevantFile(filename) {
-        const ext = getExtension(filename);
-        if (!ALLOWED_EXTENSIONS.has(ext)) return false;
-        const name = filename.split("/").pop().split("\\").pop();
-        if (name.startsWith("~$")) return false;
-        if (name.startsWith("Reconciled_")) return false;
-        return true;
+    function basename(filename) {
+        return filename.split("/").pop().split("\\").pop();
     }
 
     function formatSize(bytes) {
@@ -56,30 +68,63 @@
         return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     }
 
-    // ---------- File management ----------
+    function formatMoney(value) {
+        return `$${Number(value || 0).toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        })}`;
+    }
+
+    function isRelevantReconFile(filename) {
+        const ext = getExtension(filename);
+        const name = basename(filename);
+        if (!RECON_EXTENSIONS.has(ext)) return false;
+        if (name.startsWith("~$")) return false;
+        if (name.startsWith("Reconciled_")) return false;
+        return true;
+    }
+
+    function isAnalyticsFile(filename) {
+        const name = basename(filename);
+        return getExtension(filename) === "xlsx" && !name.startsWith("~$");
+    }
+
+    function createFileItem(name, file, onRemove) {
+        const ext = getExtension(name);
+        const icon = ext === "pdf" ? "PDF" : "XLSX";
+        const li = document.createElement("li");
+        li.className = "file-item";
+        li.innerHTML = `
+            <span class="file-icon">${icon}</span>
+            <span class="file-name" title="${name}">${name}</span>
+            <span class="file-size">${formatSize(file.size)}</span>
+            <button class="file-remove" data-name="${name}" title="Remove">x</button>
+        `;
+        li.querySelector(".file-remove").addEventListener("click", () => onRemove(name));
+        return li;
+    }
+
     function addFiles(fileArray) {
         for (const file of fileArray) {
             const name = file.name || file.webkitRelativePath || "unknown";
-            if (!isRelevantFile(name)) continue;
-            // Use the basename as key to avoid duplicates
-            const basename = name.split("/").pop().split("\\").pop();
-            selectedFiles.set(basename, file);
+            if (!isRelevantReconFile(name)) continue;
+            selectedFiles.set(basename(name), file);
         }
         renderFileList();
     }
 
-    function removeFile(filename) {
-        selectedFiles.delete(filename);
-        renderFileList();
-    }
-
-    function clearFiles() {
-        selectedFiles.clear();
-        renderFileList();
+    function addAnalyticsFiles(fileArray) {
+        for (const file of fileArray) {
+            const name = file.name || file.webkitRelativePath || "unknown";
+            if (!isAnalyticsFile(name)) continue;
+            analyticsFiles.set(basename(name), file);
+        }
+        renderAnalyticsFileList();
     }
 
     function renderFileList() {
         const count = selectedFiles.size;
+        if (currentMode !== "reconcile") return;
 
         if (count === 0) {
             fileListSection.classList.add("hidden");
@@ -90,69 +135,34 @@
         dropZoneSection.classList.add("hidden");
         fileListSection.classList.remove("hidden");
         fileCountBadge.textContent = count;
-
         fileList.innerHTML = "";
         for (const [name, file] of selectedFiles) {
-            const ext = getExtension(name);
-            const icon = ext === "pdf" ? "📄" : "📊";
-            const li = document.createElement("li");
-            li.className = "file-item";
-            li.innerHTML = `
-                <span class="file-icon">${icon}</span>
-                <span class="file-name" title="${name}">${name}</span>
-                <span class="file-size">${formatSize(file.size)}</span>
-                <button class="file-remove" data-name="${name}" title="Remove">×</button>
-            `;
-            fileList.appendChild(li);
+            fileList.appendChild(createFileItem(name, file, (filename) => {
+                selectedFiles.delete(filename);
+                renderFileList();
+            }));
         }
-
-        // Attach remove handlers
-        fileList.querySelectorAll(".file-remove").forEach(btn => {
-            btn.addEventListener("click", () => removeFile(btn.dataset.name));
-        });
     }
 
-    // ---------- Drag & drop ----------
-    function handleDragOver(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        dropZone.classList.add("drag-over");
-    }
+    function renderAnalyticsFileList() {
+        const count = analyticsFiles.size;
+        if (currentMode !== "analytics") return;
 
-    function handleDragLeave(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        dropZone.classList.remove("drag-over");
-    }
-
-    async function handleDrop(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        dropZone.classList.remove("drag-over");
-
-        const items = e.dataTransfer.items;
-        if (!items) {
-            // Fallback: use files directly
-            addFiles(Array.from(e.dataTransfer.files));
+        if (count === 0) {
+            analyticsFileSection.classList.add("hidden");
+            analyticsUploadSection.classList.remove("hidden");
             return;
         }
 
-        // Try to traverse folders using webkitGetAsEntry
-        const entries = [];
-        for (let i = 0; i < items.length; i++) {
-            const entry = items[i].webkitGetAsEntry
-                ? items[i].webkitGetAsEntry()
-                : null;
-            if (entry) {
-                entries.push(entry);
-            }
-        }
-
-        if (entries.length > 0) {
-            const files = await traverseEntries(entries);
-            addFiles(files);
-        } else {
-            addFiles(Array.from(e.dataTransfer.files));
+        analyticsUploadSection.classList.add("hidden");
+        analyticsFileSection.classList.remove("hidden");
+        analyticsCountBadge.textContent = count;
+        analyticsFileList.innerHTML = "";
+        for (const [name, file] of analyticsFiles) {
+            analyticsFileList.appendChild(createFileItem(name, file, (filename) => {
+                analyticsFiles.delete(filename);
+                renderAnalyticsFileList();
+            }));
         }
     }
 
@@ -167,7 +177,8 @@
                         resolve();
                     });
                 });
-            } else if (entry.isDirectory) {
+            }
+            if (entry.isDirectory) {
                 const reader = entry.createReader();
                 const subEntries = await new Promise((resolve) => {
                     const allEntries = [];
@@ -192,14 +203,79 @@
         for (const entry of entries) {
             await readEntry(entry);
         }
-
         return files;
     }
 
-    // ---------- Upload & process ----------
+    async function filesFromDrop(e) {
+        const items = e.dataTransfer.items;
+        if (!items) return Array.from(e.dataTransfer.files);
+
+        const entries = [];
+        for (let i = 0; i < items.length; i++) {
+            const entry = items[i].webkitGetAsEntry ? items[i].webkitGetAsEntry() : null;
+            if (entry) entries.push(entry);
+        }
+        return entries.length > 0 ? traverseEntries(entries) : Array.from(e.dataTransfer.files);
+    }
+
+    function setDragHandlers(zone, onFiles) {
+        zone.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            zone.classList.add("drag-over");
+        });
+        zone.addEventListener("dragleave", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            zone.classList.remove("drag-over");
+        });
+        zone.addEventListener("drop", async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            zone.classList.remove("drag-over");
+            onFiles(await filesFromDrop(e));
+        });
+    }
+
+    function setMode(mode) {
+        currentMode = mode;
+        tabReconcile.classList.toggle("active", mode === "reconcile");
+        tabAnalytics.classList.toggle("active", mode === "analytics");
+
+        document.querySelectorAll(".reconcile-view, .analytics-view").forEach((el) => {
+            el.classList.add("hidden");
+        });
+        processingSection.classList.add("hidden");
+        resultsSection.classList.add("hidden");
+        errorSection.classList.add("hidden");
+
+        if (mode === "reconcile") {
+            renderFileList();
+            if (selectedFiles.size === 0) dropZoneSection.classList.remove("hidden");
+        } else {
+            renderAnalyticsFileList();
+            if (analyticsFiles.size === 0) analyticsUploadSection.classList.remove("hidden");
+        }
+    }
+
+    function showSection(which) {
+        dropZoneSection.classList.add("hidden");
+        fileListSection.classList.add("hidden");
+        analyticsUploadSection.classList.add("hidden");
+        analyticsFileSection.classList.add("hidden");
+        analyticsResultsSection.classList.add("hidden");
+        processingSection.classList.add("hidden");
+        resultsSection.classList.add("hidden");
+        errorSection.classList.add("hidden");
+
+        if (which === "processing") processingSection.classList.remove("hidden");
+        if (which === "results") resultsSection.classList.remove("hidden");
+        if (which === "analytics-results") analyticsResultsSection.classList.remove("hidden");
+        if (which === "error") errorSection.classList.remove("hidden");
+    }
+
     async function runReconciliation() {
         if (selectedFiles.size === 0) return;
-
         showSection("processing");
 
         const formData = new FormData();
@@ -208,27 +284,45 @@
         }
 
         try {
-            const response = await fetch("/upload", {
-                method: "POST",
-                body: formData,
-            });
-
+            const response = await fetch("/upload", { method: "POST", body: formData });
             const data = await response.json();
-
             if (!response.ok || data.error) {
                 showError(data.error || "An unexpected error occurred.");
                 return;
             }
-
             showResults(data);
-
-            // Auto-download
             currentSessionId = data.session_id;
             currentDownloadUrl = data.download_url;
             triggerDownload(currentDownloadUrl, data.output_filename);
-
         } catch (err) {
             showError(`Network error: ${err.message}`);
+        }
+    }
+
+    async function runAnalytics() {
+        if (analyticsFiles.size === 0) return;
+        showSection("processing");
+        qs("processing-section").querySelector("h3").textContent = "Building analytics...";
+        qs("processing-section").querySelector(".processing-sub").textContent = "Reading reconciled Excel reports and preparing charts";
+
+        const formData = new FormData();
+        for (const [name, file] of analyticsFiles) {
+            formData.append("files", file, name);
+        }
+
+        try {
+            const response = await fetch("/analytics", { method: "POST", body: formData });
+            const data = await response.json();
+            if (!response.ok || data.error) {
+                showError(data.error || "Unable to build analytics.");
+                return;
+            }
+            showAnalytics(data);
+        } catch (err) {
+            showError(`Network error: ${err.message}`);
+        } finally {
+            qs("processing-section").querySelector("h3").textContent = "Processing your files...";
+            qs("processing-section").querySelector(".processing-sub").textContent = "Parsing PDFs, matching bookings, generating report";
         }
     }
 
@@ -241,158 +335,275 @@
         document.body.removeChild(a);
     }
 
-    // ---------- UI state management ----------
-    function showSection(which) {
-        dropZoneSection.classList.add("hidden");
-        fileListSection.classList.add("hidden");
-        processingSection.classList.add("hidden");
-        resultsSection.classList.add("hidden");
-        errorSection.classList.add("hidden");
-
-        switch (which) {
-            case "drop":
-                dropZoneSection.classList.remove("hidden");
-                break;
-            case "files":
-                fileListSection.classList.remove("hidden");
-                break;
-            case "processing":
-                processingSection.classList.remove("hidden");
-                break;
-            case "results":
-                resultsSection.classList.remove("hidden");
-                break;
-            case "error":
-                errorSection.classList.remove("hidden");
-                break;
-        }
-    }
-
     function showResults(data) {
         showSection("results");
+        qs("results-subtitle").textContent = `Output: ${data.output_filename}`;
 
-        // Subtitle
-        document.getElementById("results-subtitle").textContent =
-            `Output: ${data.output_filename}`;
-
-        // Summary cards
         const cards = [
-            { key: "matched",   label: "Matched",     cls: "card-match",    value: data.matched },
-            { key: "zero",      label: "Zero-Charge",  cls: "card-zero",     value: data.zero_charge },
-            { key: "unclear",   label: "Unclear",      cls: "card-unclear",  value: data.unclear },
-            { key: "mismatch",  label: "Mismatch",     cls: "card-mismatch", value: data.mismatch },
-            { key: "missing",   label: "Missing",      cls: "card-missing",  value: data.missing },
+            { label: "Matched", cls: "card-match", value: data.matched },
+            { label: "Zero-Charge", cls: "card-zero", value: data.zero_charge },
+            { label: "Unclear", cls: "card-unclear", value: data.unclear },
+            { label: "Mismatch", cls: "card-mismatch", value: data.mismatch },
+            { label: "Missing", cls: "card-missing", value: data.missing },
         ];
 
-        const cardsContainer = document.getElementById("summary-cards");
+        const cardsContainer = qs("summary-cards");
         cardsContainer.innerHTML = "";
-        cards.forEach((c, i) => {
+        cards.forEach((card, i) => {
             const div = document.createElement("div");
-            div.className = `summary-card ${c.cls}`;
+            div.className = `summary-card ${card.cls}`;
             div.style.animationDelay = `${i * 0.08}s`;
-            div.innerHTML = `
-                <div class="card-value">${c.value}</div>
-                <div class="card-label">${c.label}</div>
-            `;
+            div.innerHTML = `<div class="card-value">${card.value}</div><div class="card-label">${card.label}</div>`;
             cardsContainer.appendChild(div);
         });
 
-        // Details
-        document.getElementById("detail-total-rows").textContent = data.total_landlord_rows;
-        document.getElementById("detail-total-pdfs").textContent = data.total_pdf_bookings;
-        document.getElementById("detail-unbilled").textContent = data.unbilled_pdfs;
-        document.getElementById("detail-total-billed").textContent =
-            `$${data.total_billed.toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+        qs("detail-total-rows").textContent = data.total_landlord_rows;
+        qs("detail-total-pdfs").textContent = data.total_pdf_bookings;
+        qs("detail-unbilled").textContent = data.unbilled_pdfs;
+        qs("detail-total-billed").textContent = formatMoney(data.total_billed);
+        qs("log-output").textContent = (data.log_lines || []).join("\n");
+    }
 
-        // Log
-        const logOutput = document.getElementById("log-output");
-        logOutput.textContent = (data.log_lines || []).join("\n");
+    function destroyCharts() {
+        for (const chart of Object.values(charts)) {
+            chart.destroy();
+        }
+        charts = {};
+    }
+
+    function chartDefaults() {
+        Chart.defaults.color = "#8b8fa3";
+        Chart.defaults.font.family = "Inter, sans-serif";
+        Chart.defaults.borderColor = "rgba(255, 255, 255, 0.08)";
+    }
+
+    function makeChart(id, config) {
+        const canvas = qs(id);
+        if (!canvas || !window.Chart) return;
+        charts[id] = new Chart(canvas, config);
+    }
+
+    function showAnalytics(data) {
+        showSection("analytics-results");
+        destroyCharts();
+        chartDefaults();
+
+        qs("analytics-subtitle").textContent = `${data.files.length} reconciled report${data.files.length === 1 ? "" : "s"} analysed`;
+        renderKpis(data.totals);
+        renderCharts(data);
+        renderRequestors(data.requestors);
+        renderHeatmap(data.heatmap);
+    }
+
+    function renderKpis(totals) {
+        const cards = [
+            { label: "Total Spend", value: formatMoney(totals.billed), cls: "card-match" },
+            { label: "Avg Monthly", value: formatMoney(totals.avg_monthly_billed), cls: "card-zero" },
+            { label: "Match Rate", value: `${totals.match_rate}%`, cls: "card-match" },
+            { label: "Overlap Saved", value: formatMoney(totals.overlap_savings), cls: "card-zero" },
+            { label: "Discrepancies", value: totals.unclear + totals.mismatch + totals.missing + totals.unbilled, cls: "card-missing" },
+        ];
+        const wrap = qs("analytics-kpis");
+        wrap.innerHTML = "";
+        cards.forEach((card) => {
+            const div = document.createElement("div");
+            div.className = `summary-card ${card.cls}`;
+            div.innerHTML = `<div class="card-value">${card.value}</div><div class="card-label">${card.label}</div>`;
+            wrap.appendChild(div);
+        });
+    }
+
+    function renderCharts(data) {
+        const labels = data.months.map((m) => m.label);
+        makeChart("monthlyBillingChart", {
+            type: "bar",
+            data: {
+                labels,
+                datasets: [{ label: "Billed", data: data.months.map((m) => m.billed), backgroundColor: "#4ECDC4" }],
+            },
+            options: { responsive: true, plugins: { legend: { display: false } } },
+        });
+
+        makeChart("matchQualityChart", {
+            type: "bar",
+            data: {
+                labels,
+                datasets: [
+                    { label: "Matched", data: data.months.map((m) => m.matched), backgroundColor: "#4ECDC4" },
+                    { label: "Zero-Charge", data: data.months.map((m) => m.zero_charge), backgroundColor: "#A78BFA" },
+                    { label: "Unclear", data: data.months.map((m) => m.unclear), backgroundColor: "#FBBF24" },
+                    { label: "Mismatch", data: data.months.map((m) => m.mismatch), backgroundColor: "#F87171" },
+                    { label: "Missing", data: data.months.map((m) => m.missing), backgroundColor: "#FB923C" },
+                ],
+            },
+            options: {
+                responsive: true,
+                scales: { x: { stacked: true }, y: { stacked: true } },
+            },
+        });
+
+        makeChart("roomCostChart", {
+            type: "doughnut",
+            data: {
+                labels: data.room_costs.map((r) => r.room),
+                datasets: [{
+                    data: data.room_costs.map((r) => r.amount),
+                    backgroundColor: ["#4ECDC4", "#6C63FF", "#A78BFA", "#FBBF24", "#FB923C", "#F87171", "#38BDF8", "#34D399", "#F472B6", "#C084FC", "#FACC15", "#60A5FA"],
+                }],
+            },
+            options: { responsive: true, plugins: { legend: { position: "bottom" } } },
+        });
+
+        makeChart("overlapSavingsChart", {
+            type: "line",
+            data: {
+                labels,
+                datasets: [{
+                    label: "Savings",
+                    data: data.months.map((m) => m.overlap_savings),
+                    borderColor: "#A78BFA",
+                    backgroundColor: "rgba(167, 139, 250, 0.18)",
+                    fill: true,
+                    tension: 0.3,
+                }],
+            },
+            options: { responsive: true, plugins: { legend: { display: false } } },
+        });
+
+        makeChart("discrepancyChart", {
+            type: "bar",
+            data: {
+                labels,
+                datasets: [{
+                    label: "Discrepancies",
+                    data: data.months.map((m) => m.unclear + m.mismatch + m.missing + m.unbilled),
+                    backgroundColor: "#FB923C",
+                }],
+            },
+            options: { responsive: true, plugins: { legend: { display: false } } },
+        });
+    }
+
+    function renderRequestors(requestors) {
+        const wrap = qs("requestor-table");
+        if (!requestors.length) {
+            wrap.innerHTML = `<p class="empty-state">No requestor data found.</p>`;
+            return;
+        }
+        wrap.innerHTML = `
+            <table>
+                <thead><tr><th>Requestor</th><th>Rows</th><th>Amount</th></tr></thead>
+                <tbody>
+                    ${requestors.map((r) => `<tr><td>${escapeHtml(r.name)}</td><td>${r.count}</td><td>${formatMoney(r.amount)}</td></tr>`).join("")}
+                </tbody>
+            </table>
+        `;
+    }
+
+    function renderHeatmap(items) {
+        const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+        const hours = ["07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23"];
+        const lookup = new Map(items.map((item) => [`${item.day}|${item.hour}`, item.hours]));
+        const max = Math.max(...items.map((item) => item.hours), 1);
+        const wrap = qs("heatmap-grid");
+        wrap.innerHTML = `<div></div>${hours.map((h) => `<div class="heatmap-head">${h}</div>`).join("")}`;
+        days.forEach((day) => {
+            wrap.insertAdjacentHTML("beforeend", `<div class="heatmap-day">${day}</div>`);
+            hours.forEach((hour) => {
+                const value = lookup.get(`${day}|${hour}`) || 0;
+                const intensity = value / max;
+                wrap.insertAdjacentHTML(
+                    "beforeend",
+                    `<div class="heatmap-cell" title="${day} ${hour}:00 - ${value}h" style="background: rgba(78, 205, 196, ${0.08 + intensity * 0.7})">${value ? value : ""}</div>`
+                );
+            });
+        });
+    }
+
+    function escapeHtml(value) {
+        return String(value)
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
     }
 
     function showError(message) {
         showSection("error");
-        document.getElementById("error-message").textContent = message;
+        qs("error-message").textContent = message;
     }
 
     function resetApp() {
-        // Clean up server session
         if (currentSessionId) {
             fetch(`/cleanup/${currentSessionId}`, { method: "POST" }).catch(() => {});
             currentSessionId = null;
             currentDownloadUrl = null;
         }
         selectedFiles.clear();
-        showSection("drop");
+        setMode("reconcile");
     }
 
-    // ---------- Event listeners ----------
-    // Drop zone
-    dropZone.addEventListener("dragover", handleDragOver);
-    dropZone.addEventListener("dragleave", handleDragLeave);
-    dropZone.addEventListener("drop", handleDrop);
+    setDragHandlers(dropZone, addFiles);
+    setDragHandlers(analyticsDropZone, addAnalyticsFiles);
 
-    // Also allow dropping on the whole page when drop zone is visible
-    document.body.addEventListener("dragover", (e) => {
-        e.preventDefault();
-        if (!dropZoneSection.classList.contains("hidden")) {
-            dropZone.classList.add("drag-over");
-        }
-    });
-    document.body.addEventListener("dragleave", (e) => {
-        if (e.relatedTarget === null) {
-            dropZone.classList.remove("drag-over");
-        }
-    });
-    document.body.addEventListener("drop", (e) => {
-        if (!dropZoneSection.classList.contains("hidden")) {
-            handleDrop(e);
-        }
-    });
+    tabReconcile.addEventListener("click", () => setMode("reconcile"));
+    tabAnalytics.addEventListener("click", () => setMode("analytics"));
 
-    // File picker buttons
     btnPickFiles.addEventListener("click", (e) => {
         e.stopPropagation();
         fileInput.click();
     });
-
     btnPickFolder.addEventListener("click", (e) => {
         e.stopPropagation();
         folderInput.click();
+    });
+    btnPickAnalytics.addEventListener("click", (e) => {
+        e.stopPropagation();
+        analyticsInput.click();
     });
 
     fileInput.addEventListener("change", () => {
         addFiles(Array.from(fileInput.files));
         fileInput.value = "";
     });
-
     folderInput.addEventListener("change", () => {
         addFiles(Array.from(folderInput.files));
         folderInput.value = "";
     });
+    analyticsInput.addEventListener("change", () => {
+        addAnalyticsFiles(Array.from(analyticsInput.files));
+        analyticsInput.value = "";
+    });
 
-    // File list actions
     btnAddMore.addEventListener("click", () => fileInput.click());
     btnClear.addEventListener("click", () => {
-        clearFiles();
-        showSection("drop");
+        selectedFiles.clear();
+        renderFileList();
     });
     btnRun.addEventListener("click", runReconciliation);
 
-    // Results actions
+    btnAddAnalytics.addEventListener("click", () => analyticsInput.click());
+    btnClearAnalytics.addEventListener("click", () => {
+        analyticsFiles.clear();
+        renderAnalyticsFileList();
+    });
+    btnRunAnalytics.addEventListener("click", runAnalytics);
+
     btnDownloadAgain.addEventListener("click", () => {
-        if (currentDownloadUrl) {
-            triggerDownload(currentDownloadUrl);
-        }
+        if (currentDownloadUrl) triggerDownload(currentDownloadUrl);
     });
     btnNew.addEventListener("click", resetApp);
+    btnRetry.addEventListener("click", () => setMode(currentMode));
 
-    // Error actions
-    btnRetry.addEventListener("click", resetApp);
-
-    // Click anywhere on drop zone to pick files
     dropZone.addEventListener("click", (e) => {
-        // Don't trigger if a button was clicked
         if (e.target.closest("button")) return;
         fileInput.click();
     });
+    analyticsDropZone.addEventListener("click", (e) => {
+        if (e.target.closest("button")) return;
+        analyticsInput.click();
+    });
+
+    setMode("reconcile");
 })();

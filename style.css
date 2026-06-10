@@ -168,6 +168,41 @@ main#app {
     margin-top: 2px;
 }
 
+/* ---------- Mode Tabs ---------- */
+.mode-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    padding: 6px;
+    margin-bottom: 28px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--bg-card);
+}
+
+.mode-tab {
+    border: 0;
+    border-radius: var(--radius-sm);
+    padding: 11px 14px;
+    font-family: var(--font);
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: transparent;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.mode-tab:hover {
+    color: var(--text-primary);
+    background: var(--bg-card-hover);
+}
+
+.mode-tab.active {
+    color: #fff;
+    background: var(--accent-gradient);
+}
+
 /* ---------- Drop Zone ---------- */
 .drop-zone {
     position: relative;
@@ -662,6 +697,112 @@ main#app {
     justify-content: center;
 }
 
+/* ---------- Analytics ---------- */
+body:has(.analytics-results-section:not(.hidden)) main#app {
+    max-width: 1120px;
+}
+
+.analytics-results-section {
+    animation: slideUp 0.5s ease;
+}
+
+.analytics-kpis {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.chart-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.chart-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 18px;
+    min-height: 320px;
+}
+
+.chart-panel-wide {
+    grid-column: 1 / -1;
+}
+
+.chart-panel h3 {
+    font-size: 0.95rem;
+    font-weight: 650;
+    margin-bottom: 14px;
+    color: var(--text-primary);
+}
+
+.chart-panel canvas {
+    width: 100% !important;
+    max-height: 280px;
+}
+
+.data-table {
+    overflow-x: auto;
+}
+
+.data-table table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.data-table th,
+.data-table td {
+    padding: 10px 8px;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 0.8rem;
+    text-align: left;
+}
+
+.data-table th {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.data-table td:last-child,
+.data-table th:last-child {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.empty-state {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.heatmap-grid {
+    display: grid;
+    grid-template-columns: 44px repeat(17, minmax(34px, 1fr));
+    gap: 4px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+}
+
+.heatmap-head,
+.heatmap-day,
+.heatmap-cell {
+    min-height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.heatmap-head,
+.heatmap-day {
+    color: var(--text-secondary);
+}
+
+.heatmap-cell {
+    color: var(--text-primary);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
 /* ---------- Error ---------- */
 .error-section {
     text-align: center;
@@ -766,5 +907,17 @@ main#app {
     .btn-row {
         flex-direction: column;
         align-items: center;
+    }
+
+    .chart-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .chart-panel {
+        min-height: 280px;
+    }
+
+    .heatmap-grid {
+        grid-template-columns: 44px repeat(17, 38px);
     }
 }

@@ -12,6 +12,8 @@ import shutil
 from pathlib import Path
 
 import io
+from collections import defaultdict
+from calendar import month_name
 
 from flask import Flask, request, jsonify, send_file, render_template
 from openpyxl import load_workbook
@@ -68,6 +70,236 @@ def parse_summary_text(summary_text):
         "missing": extract_int(r"Missing from PDFs:\s*(\d+)", summary_text),
         "total_landlord_rows": extract_int(r"Landlord rows:\s*(\d+)", summary_text),
         "unbilled_pdfs": extract_int(r"PDF bookings not billed:\s*(\d+)", summary_text),
+    }
+
+
+def to_float(value, default=0.0):
+    """Parse Excel numeric/currency values safely."""
+    if value is None or value == "":
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).replace("$", "").replace(",", "").strip()
+    if not text or text in {"-", "–", "—"}:
+        return default
+    try:
+        return float(text)
+    except ValueError:
+        return default
+
+
+def normalise_status(value):
+    return str(value or "").strip().upper()
+
+
+def get_row_dicts(ws, header_row=1):
+    """Return worksheet rows as dictionaries keyed by header text."""
+    headers = [
+        "" if cell.value is None else str(cell.value).strip()
+        for cell in ws[header_row]
+    ]
+    rows = []
+    for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
+        if not any(v is not None and str(v).strip() for v in row):
+            continue
+        rows.append({headers[i]: row[i] if i < len(row) else None for i in range(len(headers))})
+    return rows
+
+
+def infer_month_key(filename, recon_rows):
+    """Infer YYYY-MM and display label from workbook rows or filename."""
+    for row in recon_rows:
+        value = row.get("Date")
+        if hasattr(value, "year") and hasattr(value, "month"):
+            return f"{value.year}-{value.month:02d}", f"{month_name[value.month]} {value.year}"
+        text = str(value or "")
+        m = re.search(
+            r"(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})",
+            text,
+            flags=re.I,
+        )
+        if m:
+            month_word = m.group(2).lower()[:3]
+            month_lookup = {
+                "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+                "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+            }
+            if month_word in month_lookup:
+                month_num = month_lookup[month_word]
+                year = int(m.group(3))
+                return f"{year}-{month_num:02d}", f"{month_name[month_num]} {year}"
+
+    m = re.search(
+        r"(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[ _-]*(\d{4})",
+        filename,
+        flags=re.I,
+    )
+    if m:
+        word = m.group(1).lower()[:3]
+        month_lookup = {
+            "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+            "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+        }
+        month_num = month_lookup.get(word)
+        if month_num:
+            year = int(m.group(2))
+            return f"{year}-{month_num:02d}", f"{month_name[month_num]} {year}"
+
+    return filename, filename
+
+
+def clean_room_label(value):
+    """Make room labels stable enough for analytics grouping."""
+    text = str(value or "").strip()
+    if not text:
+        return "Unknown"
+    try:
+        from aircon_check_final import normalise_units
+        units = sorted(normalise_units(text))
+        if units:
+            return "/".join(units)
+    except Exception:
+        pass
+    return re.sub(r"\s+", " ", text)
+
+
+def analyse_workbooks(uploaded_files):
+    monthly = {}
+    room_costs = defaultdict(float)
+    overlap_by_month = defaultdict(float)
+    requestors = defaultdict(lambda: {"count": 0, "amount": 0.0})
+    heatmap = defaultdict(float)
+    totals = {
+        "billed": 0.0,
+        "rows": 0,
+        "matched": 0,
+        "zero_charge": 0,
+        "unclear": 0,
+        "mismatch": 0,
+        "missing": 0,
+        "unbilled": 0,
+        "overlap_savings": 0.0,
+    }
+    file_summaries = []
+
+    for uploaded in uploaded_files:
+        filename = Path(uploaded.filename or "uploaded.xlsx").name
+        if filename.startswith("~$") or not filename.lower().endswith(".xlsx"):
+            continue
+
+        wb = load_workbook(uploaded, data_only=True)
+        if "Reconciliation" not in wb.sheetnames or "All PDF Bookings" not in wb.sheetnames:
+            wb.close()
+            raise ValueError(f"{filename} is not a reconciled output workbook.")
+
+        recon_rows = get_row_dicts(wb["Reconciliation"], 1)
+        pdf_rows = get_row_dicts(wb["All PDF Bookings"], 2)
+        unbilled_rows = []
+        if "PDFs Not Billed" in wb.sheetnames:
+            unbilled_rows = [
+                row for row in get_row_dicts(wb["PDFs Not Billed"], 1)
+                if row.get("Date") and not str(row.get("Date")).startswith("(")
+            ]
+
+        month_key, month_label = infer_month_key(filename, recon_rows)
+        bucket = monthly.setdefault(month_key, {
+            "key": month_key,
+            "label": month_label,
+            "billed": 0.0,
+            "rows": 0,
+            "matched": 0,
+            "zero_charge": 0,
+            "unclear": 0,
+            "mismatch": 0,
+            "missing": 0,
+            "unbilled": 0,
+            "overlap_savings": 0.0,
+        })
+
+        for row in recon_rows:
+            status = normalise_status(row.get("Status"))
+            amount = to_float(row.get("Amount"))
+            requestor = str(row.get("Requested By") or "Unknown").strip() or "Unknown"
+
+            bucket["rows"] += 1
+            bucket["billed"] += amount
+            totals["rows"] += 1
+            totals["billed"] += amount
+
+            if status == "MATCH":
+                bucket["matched"] += 1
+                totals["matched"] += 1
+            elif status == "ZERO-CHARGE":
+                bucket["zero_charge"] += 1
+                totals["zero_charge"] += 1
+            elif status == "UNCLEAR":
+                bucket["unclear"] += 1
+                totals["unclear"] += 1
+            elif status == "MISMATCH":
+                bucket["mismatch"] += 1
+                totals["mismatch"] += 1
+            elif status == "MISSING":
+                bucket["missing"] += 1
+                totals["missing"] += 1
+
+            requestors[requestor]["count"] += 1
+            requestors[requestor]["amount"] += amount
+
+        for row in pdf_rows:
+            room = clean_room_label(row.get("Location (PDF)"))
+            expected = to_float(row.get("Expected $"))
+            overlap_hours = to_float(row.get("Overlap Hrs"))
+            hours = to_float(row.get("Hours"))
+            date_text = str(row.get("Date") or "")
+            start_text = str(row.get("Time Start") or "")
+
+            room_costs[room] += expected
+            savings = overlap_hours * 120.0
+            bucket["overlap_savings"] += savings
+            totals["overlap_savings"] += savings
+
+            weekday = ""
+            m = re.search(r"(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", date_text)
+            if m:
+                try:
+                    import datetime as dt
+                    month_lookup = {name.lower(): i for i, name in enumerate(month_name) if name}
+                    parsed_date = dt.date(int(m.group(3)), month_lookup[m.group(2).lower()], int(m.group(1)))
+                    weekday = parsed_date.strftime("%a")
+                except Exception:
+                    weekday = ""
+            if weekday and len(start_text) >= 2:
+                hour = start_text[:2]
+                heatmap[f"{weekday}|{hour}"] += hours
+
+        bucket["unbilled"] += len(unbilled_rows)
+        totals["unbilled"] += len(unbilled_rows)
+        overlap_by_month[month_key] += bucket["overlap_savings"]
+        file_summaries.append({"filename": filename, "month": month_label, "rows": len(recon_rows), "pdf_rows": len(pdf_rows)})
+        wb.close()
+
+    months = [monthly[key] for key in sorted(monthly)]
+    month_count = len(months) or 1
+    clean_total = totals["matched"] + totals["zero_charge"]
+    totals["match_rate"] = round((clean_total / totals["rows"]) * 100, 1) if totals["rows"] else 0
+    totals["avg_monthly_billed"] = round(totals["billed"] / month_count, 2)
+
+    return {
+        "files": file_summaries,
+        "totals": {key: round(value, 2) if isinstance(value, float) else value for key, value in totals.items()},
+        "months": [{key: round(value, 2) if isinstance(value, float) else value for key, value in item.items()} for item in months],
+        "room_costs": [
+            {"room": room, "amount": round(amount, 2)}
+            for room, amount in sorted(room_costs.items(), key=lambda item: item[1], reverse=True)[:12]
+        ],
+        "requestors": [
+            {"name": name, "count": data["count"], "amount": round(data["amount"], 2)}
+            for name, data in sorted(requestors.items(), key=lambda item: item[1]["count"], reverse=True)[:10]
+        ],
+        "heatmap": [
+            {"day": key.split("|")[0], "hour": key.split("|")[1], "hours": round(value, 2)}
+            for key, value in sorted(heatmap.items())
+        ],
     }
 
 
@@ -188,6 +420,22 @@ def upload():
     except Exception as e:
         # Clean up on error
         shutil.rmtree(session_folder, ignore_errors=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/analytics", methods=["POST"])
+def analytics():
+    """Accept reconciled Excel outputs and return analytics JSON."""
+    files = request.files.getlist("files")
+    if not files:
+        return jsonify({"error": "No reconciled Excel files uploaded."}), 400
+
+    try:
+        result = analyse_workbooks(files)
+        if not result["files"]:
+            return jsonify({"error": "Please upload one or more Reconciled_*.xlsx files."}), 400
+        return jsonify(result)
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
