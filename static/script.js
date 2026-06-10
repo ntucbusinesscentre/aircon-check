@@ -392,7 +392,6 @@
         renderKpis(data.totals);
         renderCharts(data);
         renderRequestors(data.requestors);
-        renderHeatmap(data.heatmap);
     }
 
     function renderKpis(totals) {
@@ -498,26 +497,6 @@
                 </tbody>
             </table>
         `;
-    }
-
-    function renderHeatmap(items) {
-        const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-        const hours = ["07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23"];
-        const lookup = new Map(items.map((item) => [`${item.day}|${item.hour}`, item.hours]));
-        const max = Math.max(...items.map((item) => item.hours), 1);
-        const wrap = qs("heatmap-grid");
-        wrap.innerHTML = `<div></div>${hours.map((h) => `<div class="heatmap-head">${h}</div>`).join("")}`;
-        days.forEach((day) => {
-            wrap.insertAdjacentHTML("beforeend", `<div class="heatmap-day">${day}</div>`);
-            hours.forEach((hour) => {
-                const value = lookup.get(`${day}|${hour}`) || 0;
-                const intensity = value / max;
-                wrap.insertAdjacentHTML(
-                    "beforeend",
-                    `<div class="heatmap-cell" title="${day} ${hour}:00 - ${value}h" style="background: rgba(78, 205, 196, ${0.08 + intensity * 0.7})">${value ? value : ""}</div>`
-                );
-            });
-        });
     }
 
     function escapeHtml(value) {

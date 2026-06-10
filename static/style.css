@@ -446,10 +446,20 @@ main#app {
 }
 
 .file-icon {
-    font-size: 1.3rem;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
     flex-shrink: 0;
-    width: 32px;
+    width: 42px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     text-align: center;
+    color: var(--accent-secondary);
+    background: rgba(78, 205, 196, 0.1);
+    border: 1px solid rgba(78, 205, 196, 0.2);
+    border-radius: 6px;
 }
 
 .file-name {
@@ -773,36 +783,6 @@ body:has(.analytics-results-section:not(.hidden)) main#app {
     font-size: 0.85rem;
 }
 
-.heatmap-grid {
-    display: grid;
-    grid-template-columns: 44px repeat(17, minmax(34px, 1fr));
-    gap: 4px;
-    overflow-x: auto;
-    padding-bottom: 4px;
-}
-
-.heatmap-head,
-.heatmap-day,
-.heatmap-cell {
-    min-height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 6px;
-    font-size: 0.7rem;
-    font-variant-numeric: tabular-nums;
-}
-
-.heatmap-head,
-.heatmap-day {
-    color: var(--text-secondary);
-}
-
-.heatmap-cell {
-    color: var(--text-primary);
-    border: 1px solid rgba(255, 255, 255, 0.04);
-}
-
 /* ---------- Error ---------- */
 .error-section {
     text-align: center;
@@ -917,7 +897,4 @@ body:has(.analytics-results-section:not(.hidden)) main#app {
         min-height: 280px;
     }
 
-    .heatmap-grid {
-        grid-template-columns: 44px repeat(17, 38px);
-    }
 }
