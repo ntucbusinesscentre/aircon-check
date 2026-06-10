@@ -40,8 +40,13 @@
             </div>
         </header>
 
+        <nav class="mode-tabs" aria-label="Tool mode">
+            <button id="tab-reconcile" class="mode-tab active" type="button">Reconcile Files</button>
+            <button id="tab-analytics" class="mode-tab" type="button">Analytics</button>
+        </nav>
+
         <!-- Drop Zone -->
-        <section id="drop-zone-section">
+        <section id="drop-zone-section" class="reconcile-view">
             <div id="drop-zone" class="drop-zone">
                 <div class="drop-zone-content">
                     <div class="drop-icon">
@@ -75,7 +80,7 @@
         </section>
 
         <!-- File List -->
-        <section id="file-list-section" class="file-list-section hidden">
+        <section id="file-list-section" class="file-list-section reconcile-view hidden">
             <div class="file-list-header">
                 <h3>
                     <span id="file-count-badge" class="badge">0</span>
@@ -146,6 +151,91 @@
             </div>
         </section>
 
+        <!-- Analytics Upload -->
+        <section id="analytics-upload-section" class="analytics-view hidden">
+            <div id="analytics-drop-zone" class="drop-zone">
+                <div class="drop-zone-content">
+                    <div class="drop-icon">
+                        <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+                            <path d="M10 46h44" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <rect x="14" y="28" width="7" height="14" rx="2" stroke="currentColor" stroke-width="2"/>
+                            <rect x="28" y="18" width="7" height="24" rx="2" stroke="currentColor" stroke-width="2"/>
+                            <rect x="42" y="10" width="7" height="32" rx="2" stroke="currentColor" stroke-width="2"/>
+                        </svg>
+                    </div>
+                    <h2>Upload reconciled reports</h2>
+                    <p>Use final Reconciled_*.xlsx files from each month</p>
+                    <div class="drop-zone-divider">
+                        <span>or</span>
+                    </div>
+                    <div class="btn-row">
+                        <button id="btn-pick-analytics" class="btn btn-secondary" type="button">
+                            Pick Excel Reports
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <input type="file" id="analytics-input" multiple accept=".xlsx" hidden>
+        </section>
+
+        <!-- Analytics File List -->
+        <section id="analytics-file-section" class="file-list-section analytics-view hidden">
+            <div class="file-list-header">
+                <h3>
+                    <span id="analytics-count-badge" class="badge">0</span>
+                    Reports ready
+                </h3>
+                <div class="file-list-actions">
+                    <button id="btn-add-analytics" class="btn btn-ghost" type="button">+ Add more</button>
+                    <button id="btn-clear-analytics" class="btn btn-ghost btn-danger" type="button">Clear all</button>
+                </div>
+            </div>
+            <ul id="analytics-file-list" class="file-list"></ul>
+            <button id="btn-run-analytics" class="btn btn-primary btn-lg" type="button">Build Analytics</button>
+        </section>
+
+        <!-- Analytics Results -->
+        <section id="analytics-results-section" class="analytics-results-section analytics-view hidden">
+            <div class="results-header">
+                <div class="results-icon">✓</div>
+                <h2>Analytics Dashboard</h2>
+                <p id="analytics-subtitle" class="results-subtitle"></p>
+            </div>
+
+            <div id="analytics-kpis" class="summary-cards analytics-kpis"></div>
+
+            <div class="chart-grid">
+                <article class="chart-panel chart-panel-wide">
+                    <h3>Monthly Billing</h3>
+                    <canvas id="monthlyBillingChart"></canvas>
+                </article>
+                <article class="chart-panel chart-panel-wide">
+                    <h3>Match Quality</h3>
+                    <canvas id="matchQualityChart"></canvas>
+                </article>
+                <article class="chart-panel">
+                    <h3>Room Cost Ranking</h3>
+                    <canvas id="roomCostChart"></canvas>
+                </article>
+                <article class="chart-panel">
+                    <h3>Overlap Savings</h3>
+                    <canvas id="overlapSavingsChart"></canvas>
+                </article>
+                <article class="chart-panel">
+                    <h3>Top Requestors</h3>
+                    <div id="requestor-table" class="data-table"></div>
+                </article>
+                <article class="chart-panel">
+                    <h3>Discrepancy Tracker</h3>
+                    <canvas id="discrepancyChart"></canvas>
+                </article>
+                <article class="chart-panel chart-panel-wide">
+                    <h3>Time / Day Heatmap</h3>
+                    <div id="heatmap-grid" class="heatmap-grid"></div>
+                </article>
+            </div>
+        </section>
+
         <!-- Error State -->
         <section id="error-section" class="error-section hidden">
             <div class="error-icon">✕</div>
@@ -159,6 +249,7 @@
         <p>Built for NTUC Business Centre</p>
     </footer>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
     <script src="/static/script.js"></script>
 </body>
 </html>
