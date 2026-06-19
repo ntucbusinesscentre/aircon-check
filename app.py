@@ -9,6 +9,7 @@ import re
 import sys
 import uuid
 import shutil
+import math
 from pathlib import Path
 
 import io
@@ -180,6 +181,231 @@ def clean_room_label(value):
     return re.sub(r"\s+", " ", text)
 
 
+def forecast_billing(months_data, forecast_horizon=6):
+    """
+    Predict future monthly billing from uploaded reconciled reports.
+
+    Main method:
+      - Use the latest uploaded year as the current year.
+      - Compare current-year months against the same months from the previous year.
+      - Apply that year-on-year growth factor to future months from the previous year.
+
+    Fallback:
+      - If there is not enough same-month prior-year data, use a simple linear trend.
+    """
+    if len(months_data) < 3:
+        return {"items": [], "total": 0.0, "method": "Need at least 3 months of data"}
+
+    parsed = []
+    for item in months_data:
+        try:
+            year, month = [int(part) for part in item["key"].split("-")]
+        except Exception:
+            continue
+        parsed.append({
+            "year": year,
+            "month": month,
+            "key": item["key"],
+            "label": item["label"],
+            "billed": float(item.get("billed") or 0),
+        })
+
+    if len(parsed) < 3:
+        return {"items": [], "total": 0.0, "method": "Need month-labelled data"}
+
+    parsed.sort(key=lambda item: (item["year"], item["month"]))
+    by_month = {(item["year"], item["month"]): item["billed"] for item in parsed}
+
+    current_year = max(item["year"] for item in parsed)
+    current_months = [item["month"] for item in parsed if item["year"] == current_year]
+    if not current_months:
+        return {"items": [], "total": 0.0, "method": "Need current-year data"}
+
+    latest_month = max(current_months)
+    previous_year = current_year - 1
+    comparable_months = [
+        month for month in current_months
+        if (previous_year, month) in by_month and by_month[(previous_year, month)] > 0
+    ]
+
+    forecasts = []
+    residuals = []
+    method = "Year-on-year run-rate"
+    growth_factor = None
+
+    if comparable_months:
+        current_total = sum(by_month[(current_year, month)] for month in comparable_months)
+        previous_total = sum(by_month[(previous_year, month)] for month in comparable_months)
+        growth_factor = current_total / previous_total if previous_total else 1.0
+
+        for month in comparable_months:
+            expected = by_month[(previous_year, month)] * growth_factor
+            residuals.append(by_month[(current_year, month)] - expected)
+
+        for step in range(1, forecast_horizon + 1):
+            future_month = latest_month + step
+            future_year = current_year + (future_month - 1) // 12
+            future_month = ((future_month - 1) % 12) + 1
+
+            prior_value = by_month.get((future_year - 1, future_month))
+            if prior_value is None:
+                prior_value = by_month.get((previous_year, future_month))
+
+            if prior_value is None:
+                break
+
+            predicted = max(0, prior_value * growth_factor)
+            key = f"{future_year}-{future_month:02d}"
+            forecasts.append({
+                "key": key,
+                "label": f"{month_name[future_month]} {future_year}",
+                "billed": round(predicted, 2),
+                "source": f"{future_year - 1} same month x {growth_factor:.2f}",
+            })
+    else:
+        method = "Linear trend"
+        values = [item["billed"] for item in parsed]
+        n = len(values)
+        xs = list(range(n))
+
+        sum_x = sum(xs)
+        sum_y = sum(values)
+        sum_xy = sum(x * y for x, y in zip(xs, values))
+        sum_x2 = sum(x * x for x in xs)
+
+        denom = n * sum_x2 - sum_x * sum_x
+        if denom == 0:
+            slope = 0.0
+            intercept = sum_y / n
+        else:
+            slope = (n * sum_xy - sum_x * sum_y) / denom
+            intercept = (sum_y - slope * sum_x) / n
+
+        for i, val in enumerate(values):
+            residuals.append(val - (slope * i + intercept))
+
+        last = parsed[-1]
+        for step in range(1, forecast_horizon + 1):
+            future_month = last["month"] + step
+            future_year = last["year"] + (future_month - 1) // 12
+            future_month = ((future_month - 1) % 12) + 1
+            predicted = max(0, slope * (n - 1 + step) + intercept)
+            key = f"{future_year}-{future_month:02d}"
+            forecasts.append({
+                "key": key,
+                "label": f"{month_name[future_month]} {future_year}",
+                "billed": round(predicted, 2),
+                "source": "Trend projection",
+            })
+
+    if len(residuals) > 1:
+        mean_r = sum(residuals) / len(residuals)
+        std_r = math.sqrt(sum((r - mean_r) ** 2 for r in residuals) / (len(residuals) - 1))
+    else:
+        std_r = 0.0
+
+    for item in forecasts:
+        band = max(std_r * 1.5, item["billed"] * 0.12)
+        item["lower"] = round(max(0, item["billed"] - band), 2)
+        item["upper"] = round(item["billed"] + band, 2)
+
+    return {
+        "items": forecasts,
+        "total": round(sum(item["billed"] for item in forecasts), 2),
+        "method": method,
+        "growth_factor": round(growth_factor, 4) if growth_factor is not None else None,
+        "history_months": len(parsed),
+    }
+
+
+def legacy_forecast_billing(months_data, forecast_horizon=6):
+    """Older trend-only forecast retained for reference."""
+    if len(months_data) < 3:
+        return []
+
+    values = []
+    month_of_year = []
+    for i, m in enumerate(months_data):
+        values.append(m["billed"])
+        parts = m["key"].split("-")
+        month_of_year.append(int(parts[1]))
+
+    n = len(values)
+    xs = list(range(n))
+
+    # --- Linear regression: y = slope * x + intercept ---
+    sum_x = sum(xs)
+    sum_y = sum(values)
+    sum_xy = sum(x * y for x, y in zip(xs, values))
+    sum_x2 = sum(x * x for x in xs)
+
+    denom = n * sum_x2 - sum_x * sum_x
+    if denom == 0:
+        slope = 0.0
+        intercept = sum_y / n
+    else:
+        slope = (n * sum_xy - sum_x * sum_y) / denom
+        intercept = (sum_y - slope * sum_x) / n
+
+    # --- Seasonal factors (average residual per month-of-year) ---
+    seasonal_sum = defaultdict(float)
+    seasonal_count = defaultdict(int)
+    for i, val in enumerate(values):
+        trend_val = slope * i + intercept
+        residual = val - trend_val
+        seasonal_sum[month_of_year[i]] += residual
+        seasonal_count[month_of_year[i]] += 1
+
+    seasonal_factor = {}
+    for moy in range(1, 13):
+        if seasonal_count[moy] > 0:
+            seasonal_factor[moy] = seasonal_sum[moy] / seasonal_count[moy]
+        else:
+            seasonal_factor[moy] = 0.0
+
+    # --- Generate forecasts ---
+    last_key = months_data[-1]["key"]
+    last_year, last_month = int(last_key.split("-")[0]), int(last_key.split("-")[1])
+
+    forecasts = []
+    for step in range(1, forecast_horizon + 1):
+        future_month = last_month + step
+        future_year = last_year + (future_month - 1) // 12
+        future_month = ((future_month - 1) % 12) + 1
+
+        future_x = n - 1 + step
+        trend_prediction = slope * future_x + intercept
+        seasonal_adj = seasonal_factor.get(future_month, 0.0)
+        predicted = max(0, trend_prediction + seasonal_adj)  # no negative bills
+
+        key = f"{future_year}-{future_month:02d}"
+        label = f"{month_name[future_month]} {future_year}"
+        forecasts.append({
+            "key": key,
+            "label": label,
+            "billed": round(predicted, 2),
+            "is_forecast": True,
+        })
+
+    # Compute confidence bounds (based on historical residual std dev)
+    residuals = []
+    for i, val in enumerate(values):
+        trend_val = slope * i + intercept + seasonal_factor.get(month_of_year[i], 0.0)
+        residuals.append(val - trend_val)
+
+    if len(residuals) > 1:
+        mean_r = sum(residuals) / len(residuals)
+        std_r = math.sqrt(sum((r - mean_r) ** 2 for r in residuals) / (len(residuals) - 1))
+    else:
+        std_r = 0.0
+
+    for f in forecasts:
+        f["lower"] = round(max(0, f["billed"] - 1.5 * std_r), 2)
+        f["upper"] = round(f["billed"] + 1.5 * std_r, 2)
+
+    return forecasts
+
+
 def analyse_workbooks(uploaded_files):
     monthly = {}
     room_costs = defaultdict(float)
@@ -290,11 +516,13 @@ def analyse_workbooks(uploaded_files):
     clean_total = totals["matched"] + totals["zero_charge"]
     totals["match_rate"] = round((clean_total / totals["rows"]) * 100, 1) if totals["rows"] else 0
     totals["avg_monthly_billed"] = round(totals["billed"] / month_count, 2)
+    forecast = forecast_billing(months)
 
     return {
         "files": file_summaries,
         "totals": {key: round(value, 2) if isinstance(value, float) else value for key, value in totals.items()},
         "months": [{key: round(value, 2) if isinstance(value, float) else value for key, value in item.items()} for item in months],
+        "forecast": forecast,
         "room_costs": [
             {"room": room, "amount": round(amount, 2)}
             for room, amount in sorted(room_costs.items(), key=lambda item: item[1], reverse=True)[:12]
