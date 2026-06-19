@@ -389,16 +389,20 @@
         chartDefaults();
 
         qs("analytics-subtitle").textContent = `${data.files.length} reconciled report${data.files.length === 1 ? "" : "s"} analysed`;
-        renderKpis(data.totals);
+        renderKpis(data);
         renderCharts(data);
+        renderForecast(data);
         renderRequestors(data.requestors);
     }
 
-    function renderKpis(totals) {
+    function renderKpis(data) {
+        const totals = data.totals;
+        const forecastTotal = data.forecast && data.forecast.total ? data.forecast.total : 0;
         const cards = [
             { label: "Total Spend", value: formatMoney(totals.billed), cls: "card-match" },
             { label: "Avg Monthly", value: formatMoney(totals.avg_monthly_billed), cls: "card-zero" },
             { label: "Match Rate", value: `${totals.match_rate}%`, cls: "card-match" },
+            { label: "Next 6 Months", value: forecastTotal ? formatMoney(forecastTotal) : "Need more data", cls: "card-zero" },
             { label: "Overlap Saved", value: formatMoney(totals.overlap_savings), cls: "card-zero" },
             { label: "Discrepancies", value: totals.unclear + totals.mismatch + totals.missing + totals.unbilled, cls: "card-missing" },
         ];
@@ -481,6 +485,110 @@
             },
             options: { responsive: true, plugins: { legend: { display: false } } },
         });
+    }
+
+    function renderForecast(data) {
+        const forecast = data.forecast || { items: [], method: "" };
+        const items = forecast.items || [];
+        const method = qs("forecast-method");
+        const table = qs("forecast-table");
+
+        method.textContent = forecast.method || "Forecast";
+
+        if (!items.length) {
+            table.innerHTML = `<p class="empty-state">Upload at least 3 month-labelled reconciled reports. For best results, include 2025 plus the completed 2026 months.</p>`;
+            makeChart("billingForecastChart", {
+                type: "line",
+                data: {
+                    labels: data.months.map((m) => m.label),
+                    datasets: [{
+                        label: "Actual",
+                        data: data.months.map((m) => m.billed),
+                        borderColor: "#4ECDC4",
+                        backgroundColor: "rgba(78, 205, 196, 0.18)",
+                        tension: 0.25,
+                    }],
+                },
+                options: { responsive: true, plugins: { legend: { position: "bottom" } } },
+            });
+            return;
+        }
+
+        const actualLabels = data.months.map((m) => m.label);
+        const forecastLabels = items.map((m) => m.label);
+        const labels = [...actualLabels, ...forecastLabels];
+        const actualData = [...data.months.map((m) => m.billed), ...items.map(() => null)];
+        const forecastData = [...data.months.map(() => null), ...items.map((m) => m.billed)];
+        const lowerData = [...data.months.map(() => null), ...items.map((m) => m.lower)];
+        const upperData = [...data.months.map(() => null), ...items.map((m) => m.upper)];
+
+        makeChart("billingForecastChart", {
+            type: "line",
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: "Actual",
+                        data: actualData,
+                        borderColor: "#4ECDC4",
+                        backgroundColor: "rgba(78, 205, 196, 0.18)",
+                        tension: 0.25,
+                    },
+                    {
+                        label: "Forecast",
+                        data: forecastData,
+                        borderColor: "#FBBF24",
+                        backgroundColor: "rgba(251, 191, 36, 0.18)",
+                        borderDash: [6, 5],
+                        tension: 0.25,
+                    },
+                    {
+                        label: "Low estimate",
+                        data: lowerData,
+                        borderColor: "rgba(167, 139, 250, 0.55)",
+                        borderDash: [3, 5],
+                        pointRadius: 0,
+                        tension: 0.25,
+                    },
+                    {
+                        label: "High estimate",
+                        data: upperData,
+                        borderColor: "rgba(167, 139, 250, 0.55)",
+                        borderDash: [3, 5],
+                        pointRadius: 0,
+                        tension: 0.25,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                interaction: { mode: "index", intersect: false },
+                plugins: {
+                    legend: { position: "bottom" },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => `${ctx.dataset.label}: ${formatMoney(ctx.raw)}`,
+                        },
+                    },
+                },
+            },
+        });
+
+        table.innerHTML = `
+            <table>
+                <thead><tr><th>Month</th><th>Predicted</th><th>Low</th><th>High</th></tr></thead>
+                <tbody>
+                    ${items.map((item) => `
+                        <tr>
+                            <td>${escapeHtml(item.label)}</td>
+                            <td>${formatMoney(item.billed)}</td>
+                            <td>${formatMoney(item.lower)}</td>
+                            <td>${formatMoney(item.upper)}</td>
+                        </tr>
+                    `).join("")}
+                </tbody>
+            </table>
+        `;
     }
 
     function renderRequestors(requestors) {

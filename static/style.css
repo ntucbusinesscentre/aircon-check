@@ -745,9 +745,46 @@ body:has(.analytics-results-section:not(.hidden)) main#app {
     color: var(--text-primary);
 }
 
+.panel-heading-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.panel-heading-row h3 {
+    margin-bottom: 0;
+}
+
+.panel-pill {
+    padding: 5px 9px;
+    border: 1px solid rgba(78, 205, 196, 0.35);
+    border-radius: 999px;
+    color: var(--accent-teal);
+    background: rgba(78, 205, 196, 0.08);
+    font-size: 0.72rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
 .chart-panel canvas {
     width: 100% !important;
     max-height: 280px;
+}
+
+.forecast-panel canvas {
+    max-height: 320px;
+}
+
+.forecast-table {
+    margin-top: 14px;
+}
+
+.forecast-table td:nth-child(n + 2),
+.forecast-table th:nth-child(n + 2) {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
 }
 
 .data-table {
