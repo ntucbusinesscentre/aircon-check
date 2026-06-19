@@ -205,6 +205,14 @@
             <div id="analytics-kpis" class="summary-cards analytics-kpis"></div>
 
             <div class="chart-grid">
+                <article class="chart-panel chart-panel-wide forecast-panel">
+                    <div class="panel-heading-row">
+                        <h3>Future Billing Forecast</h3>
+                        <span id="forecast-method" class="panel-pill"></span>
+                    </div>
+                    <canvas id="billingForecastChart"></canvas>
+                    <div id="forecast-table" class="data-table forecast-table"></div>
+                </article>
                 <article class="chart-panel chart-panel-wide">
                     <h3>Monthly Billing</h3>
                     <canvas id="monthlyBillingChart"></canvas>
