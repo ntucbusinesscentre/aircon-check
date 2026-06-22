@@ -181,7 +181,7 @@ def clean_room_label(value):
     return re.sub(r"\s+", " ", text)
 
 
-def forecast_billing(months_data, forecast_horizon=6):
+def forecast_billing(months_data, forecast_horizon=None):
     """
     Predict future monthly billing from uploaded reconciled reports.
 
@@ -192,6 +192,9 @@ def forecast_billing(months_data, forecast_horizon=6):
 
     Fallback:
       - If there is not enough same-month prior-year data, use a simple linear trend.
+
+    forecast_horizon: If None, automatically extends through December of the
+    current data year to ensure a full year-on-year forecast.
     """
     if len(months_data) < 3:
         return {"items": [], "total": 0.0, "method": "Need at least 3 months of data"}
@@ -222,6 +225,10 @@ def forecast_billing(months_data, forecast_horizon=6):
         return {"items": [], "total": 0.0, "method": "Need current-year data"}
 
     latest_month = max(current_months)
+
+    # Auto-compute horizon to always reach December of the current year
+    if forecast_horizon is None:
+        forecast_horizon = max(6, 12 - latest_month)
     previous_year = current_year - 1
     comparable_months = [
         month for month in current_months
