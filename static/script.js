@@ -398,11 +398,21 @@
     function renderKpis(data) {
         const totals = data.totals;
         const forecastTotal = data.forecast && data.forecast.total ? data.forecast.total : 0;
+        const forecastItems = (data.forecast && data.forecast.items) || [];
+        const forecastCount = forecastItems.length;
+        let forecastLabel = `Next ${forecastCount} Month${forecastCount === 1 ? "" : "s"}`;
+        if (forecastItems.length >= 2) {
+            const first = forecastItems[0].label.split(" ")[0];
+            const last = forecastItems[forecastItems.length - 1].label;
+            forecastLabel = `Forecast ${first}–${last}`;
+        } else if (forecastItems.length === 1) {
+            forecastLabel = `Forecast ${forecastItems[0].label}`;
+        }
         const cards = [
             { label: "Total Spend", value: formatMoney(totals.billed), cls: "card-match" },
             { label: "Avg Monthly", value: formatMoney(totals.avg_monthly_billed), cls: "card-zero" },
             { label: "Match Rate", value: `${totals.match_rate}%`, cls: "card-match" },
-            { label: "Next 6 Months", value: forecastTotal ? formatMoney(forecastTotal) : "Need more data", cls: "card-zero" },
+            { label: forecastLabel, value: forecastTotal ? formatMoney(forecastTotal) : "Need more data", cls: "card-zero" },
             { label: "Overlap Saved", value: formatMoney(totals.overlap_savings), cls: "card-zero" },
             { label: "Discrepancies", value: totals.unclear + totals.mismatch + totals.missing + totals.unbilled, cls: "card-missing" },
         ];
