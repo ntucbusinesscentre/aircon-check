@@ -166,94 +166,65 @@ def infer_month_key(filename, recon_rows):
     return filename, filename
 
 
-def clean_room_label(value):
-    """Make room labels stable enough for analytics grouping.
+# ── Room grouping ──────────────────────────────────────────────────────────────
+# Maps individual room numbers to a canonical display label.
+# Rooms on the same floor that are always booked together share a group.
+ROOM_GROUPS = {
+    700:  "Room 700 (Auditorium)",
+    701:  "Rooms 701/702",
+    702:  "Rooms 701/702",
+    801:  "Rooms 801/802",
+    802:  "Rooms 801/802",
+    901:  "Rooms 901/902",
+    902:  "Rooms 901/902",
+    903:  "Rooms 901/902",
+    10:   "Rooms 1001/1002",
+    1001: "Rooms 1001/1002",
+    1002: "Rooms 1001/1002",
+    1003: "Rooms 1001/1002",
+    1104: "Rooms 1104/1105",
+    1105: "Rooms 1104/1105",
+}
 
-    Normalises by:
-      1. Splitting on common delimiters (/, &, +, comma, whitespace)
-      2. Stripping prefixes (Rm, Room, #) to get the core id
-      3. If ANY token carries an 'L' prefix, applying it to small bare numbers
-         so "700/8/L7" → "700/L7/L8"
-      4. Sorting tokens by numeric value for deterministic output
+
+def clean_room_label(value):
+    """Map a raw PDF location string to a canonical room group.
+
+    Strategy:
+      1. Extract all numbers from the text.
+      2. Look up 3-4 digit room numbers in ROOM_GROUPS first (most specific).
+      3. Fall back to smaller numbers (e.g. '10' for Level 10).
+      4. Detect 'mezzanine' or '7M' keywords (after room-number check).
+      5. If nothing matches, return the cleaned text as-is.
     """
     text = str(value or "").strip()
     if not text:
         return "Unknown"
 
-    # Split on /, &, +, commas, or whitespace runs
-    raw_tokens = re.split(r"[/&+,\s]+", text)
-    cleaned = []
-    has_L_prefix = False
-    for tok in raw_tokens:
-        tok = tok.strip()
-        if not tok:
-            continue
-        # Strip common prefixes: Rm, Room, #
-        core = re.sub(r"^(?:room|rm|#)\s*", "", tok, flags=re.I).strip()
-        if re.match(r"^[Ll]\d+$", core):
-            has_L_prefix = True
-        cleaned.append(core)
+    # Extract every number from the text
+    all_numbers = [int(n) for n in re.findall(r"\d+", text)]
 
-    if not cleaned:
-        return re.sub(r"\s+", " ", text)
+    # Try 3-4 digit room numbers first (most reliable identifiers)
+    for num in all_numbers:
+        if 100 <= num <= 9999 and num in ROOM_GROUPS:
+            return ROOM_GROUPS[num]
 
-    # Second pass: if we saw any L-prefix, apply it to small bare numbers
-    # (e.g. "8" becomes "L8" when sibling "L7" exists)
-    normalised = []
-    for tok in cleaned:
-        m = re.match(r"^[Ll](\d+)$", tok)
-        if m:
-            normalised.append(f"L{m.group(1)}")
-            continue
-        if has_L_prefix and re.match(r"^\d+$", tok) and len(tok) <= 2:
-            # Bare small number in an L-context → add L prefix
-            normalised.append(f"L{tok}")
-        else:
-            normalised.append(tok.upper() if tok.isalpha() else tok)
+    # Try smaller numbers (e.g. standalone "10" for Level 10)
+    for num in all_numbers:
+        if num in ROOM_GROUPS:
+            return ROOM_GROUPS[num]
 
-    # Sort: bare room numbers first, then L-prefixed levels, dedup
-    def sort_key(token):
-        is_level = token.startswith("L") and token[1:].isdigit()
-        nums = re.findall(r"\d+", token)
-        if nums:
-            # Levels sort after room numbers (is_level=True → 1)
-            return (1 if is_level else 0, int(nums[0]), token)
-        return (2, 0, token)
+    # Keyword match: mezzanine / 7M (checked after room numbers)
+    if re.search(r"mezzanine|(?:^|\b)7\s*M(?:\b|$)", text, re.I):
+        return "Mezzanine"
 
-    normalised = sorted(set(normalised), key=sort_key)
-    return "/".join(normalised)
+    # Fallback: join any 3-4 digit numbers found
+    room_numbers = sorted(set(n for n in all_numbers if 100 <= n <= 9999))
+    if room_numbers:
+        return "/".join(str(n) for n in room_numbers)
 
+    return re.sub(r"\s+", " ", text)
 
-def merge_room_subsets(room_costs):
-    """Merge room labels that are subsets of others.
-
-    e.g. '10/1001/1002' costs get folded into '10/1001/1002/1003'.
-    """
-    labels = list(room_costs.keys())
-    token_sets = {label: set(label.split("/")) for label in labels}
-
-    # Find labels whose tokens are a strict subset of another label
-    merge_map = {}
-    for label_a in labels:
-        for label_b in labels:
-            if label_a == label_b:
-                continue
-            if token_sets[label_a] < token_sets[label_b]:  # strict subset
-                # a is a subset of b — merge a into b
-                # Pick the longest (superset) as canonical
-                existing = merge_map.get(label_a)
-                if existing is None or len(token_sets[label_b]) > len(token_sets[existing]):
-                    merge_map[label_a] = label_b
-
-    if not merge_map:
-        return room_costs
-
-    merged = defaultdict(float)
-    for label, amount in room_costs.items():
-        canonical = merge_map.get(label, label)
-        merged[canonical] += amount
-
-    return dict(merged)
 
 
 def forecast_billing(months_data, forecast_horizon=None):
@@ -600,9 +571,6 @@ def analyse_workbooks(uploaded_files):
     totals["avg_monthly_billed"] = round(totals["billed"] / month_count, 2)
     forecast = forecast_billing(months)
 
-    # Merge subset room labels (e.g. "10/1001/1002" into "10/1001/1002/1003")
-    merged_room_costs = merge_room_subsets(dict(room_costs))
-
     return {
         "files": file_summaries,
         "totals": {key: round(value, 2) if isinstance(value, float) else value for key, value in totals.items()},
@@ -610,7 +578,7 @@ def analyse_workbooks(uploaded_files):
         "forecast": forecast,
         "room_costs": [
             {"room": room, "amount": round(amount, 2)}
-            for room, amount in sorted(merged_room_costs.items(), key=lambda item: item[1], reverse=True)[:12]
+            for room, amount in sorted(room_costs.items(), key=lambda item: item[1], reverse=True)[:12]
         ],
         "requestors": [
             {"name": name, "count": data["count"], "amount": round(data["amount"], 2)}
