@@ -167,18 +167,93 @@ def infer_month_key(filename, recon_rows):
 
 
 def clean_room_label(value):
-    """Make room labels stable enough for analytics grouping."""
+    """Make room labels stable enough for analytics grouping.
+
+    Normalises by:
+      1. Splitting on common delimiters (/, &, +, comma, whitespace)
+      2. Stripping prefixes (Rm, Room, #) to get the core id
+      3. If ANY token carries an 'L' prefix, applying it to small bare numbers
+         so "700/8/L7" → "700/L7/L8"
+      4. Sorting tokens by numeric value for deterministic output
+    """
     text = str(value or "").strip()
     if not text:
         return "Unknown"
-    try:
-        from aircon_check_final import normalise_units
-        units = sorted(normalise_units(text))
-        if units:
-            return "/".join(units)
-    except Exception:
-        pass
-    return re.sub(r"\s+", " ", text)
+
+    # Split on /, &, +, commas, or whitespace runs
+    raw_tokens = re.split(r"[/&+,\s]+", text)
+    cleaned = []
+    has_L_prefix = False
+    for tok in raw_tokens:
+        tok = tok.strip()
+        if not tok:
+            continue
+        # Strip common prefixes: Rm, Room, #
+        core = re.sub(r"^(?:room|rm|#)\s*", "", tok, flags=re.I).strip()
+        if re.match(r"^[Ll]\d+$", core):
+            has_L_prefix = True
+        cleaned.append(core)
+
+    if not cleaned:
+        return re.sub(r"\s+", " ", text)
+
+    # Second pass: if we saw any L-prefix, apply it to small bare numbers
+    # (e.g. "8" becomes "L8" when sibling "L7" exists)
+    normalised = []
+    for tok in cleaned:
+        m = re.match(r"^[Ll](\d+)$", tok)
+        if m:
+            normalised.append(f"L{m.group(1)}")
+            continue
+        if has_L_prefix and re.match(r"^\d+$", tok) and len(tok) <= 2:
+            # Bare small number in an L-context → add L prefix
+            normalised.append(f"L{tok}")
+        else:
+            normalised.append(tok.upper() if tok.isalpha() else tok)
+
+    # Sort: bare room numbers first, then L-prefixed levels, dedup
+    def sort_key(token):
+        is_level = token.startswith("L") and token[1:].isdigit()
+        nums = re.findall(r"\d+", token)
+        if nums:
+            # Levels sort after room numbers (is_level=True → 1)
+            return (1 if is_level else 0, int(nums[0]), token)
+        return (2, 0, token)
+
+    normalised = sorted(set(normalised), key=sort_key)
+    return "/".join(normalised)
+
+
+def merge_room_subsets(room_costs):
+    """Merge room labels that are subsets of others.
+
+    e.g. '10/1001/1002' costs get folded into '10/1001/1002/1003'.
+    """
+    labels = list(room_costs.keys())
+    token_sets = {label: set(label.split("/")) for label in labels}
+
+    # Find labels whose tokens are a strict subset of another label
+    merge_map = {}
+    for label_a in labels:
+        for label_b in labels:
+            if label_a == label_b:
+                continue
+            if token_sets[label_a] < token_sets[label_b]:  # strict subset
+                # a is a subset of b — merge a into b
+                # Pick the longest (superset) as canonical
+                existing = merge_map.get(label_a)
+                if existing is None or len(token_sets[label_b]) > len(token_sets[existing]):
+                    merge_map[label_a] = label_b
+
+    if not merge_map:
+        return room_costs
+
+    merged = defaultdict(float)
+    for label, amount in room_costs.items():
+        canonical = merge_map.get(label, label)
+        merged[canonical] += amount
+
+    return dict(merged)
 
 
 def forecast_billing(months_data, forecast_horizon=None):
@@ -525,6 +600,9 @@ def analyse_workbooks(uploaded_files):
     totals["avg_monthly_billed"] = round(totals["billed"] / month_count, 2)
     forecast = forecast_billing(months)
 
+    # Merge subset room labels (e.g. "10/1001/1002" into "10/1001/1002/1003")
+    merged_room_costs = merge_room_subsets(dict(room_costs))
+
     return {
         "files": file_summaries,
         "totals": {key: round(value, 2) if isinstance(value, float) else value for key, value in totals.items()},
@@ -532,7 +610,7 @@ def analyse_workbooks(uploaded_files):
         "forecast": forecast,
         "room_costs": [
             {"room": room, "amount": round(amount, 2)}
-            for room, amount in sorted(room_costs.items(), key=lambda item: item[1], reverse=True)[:12]
+            for room, amount in sorted(merged_room_costs.items(), key=lambda item: item[1], reverse=True)[:12]
         ],
         "requestors": [
             {"name": name, "count": data["count"], "amount": round(data["amount"], 2)}
