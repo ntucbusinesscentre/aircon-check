@@ -231,13 +231,15 @@ def forecast_billing(months_data, forecast_horizon=None):
     """
     Predict future monthly billing from uploaded reconciled reports.
 
-    Main method:
+    Main method (Year-on-year run-rate):
       - Use the latest uploaded year as the current year.
       - Compare current-year months against the same months from the previous year.
       - Apply that year-on-year growth factor to future months from the previous year.
 
-    Fallback:
-      - If there is not enough same-month prior-year data, use a simple linear trend.
+    Fallback (Seasonal trend):
+      - If there is not enough same-month prior-year data, use linear regression
+        with per-month seasonal adjustment so the forecast follows the spending
+        curve rather than a flat line.
 
     forecast_horizon: If None, automatically extends through December of the
     current data year to ensure a full year-on-year forecast.
@@ -316,7 +318,7 @@ def forecast_billing(months_data, forecast_horizon=None):
                 "source": f"{future_year - 1} same month x {growth_factor:.2f}",
             })
     else:
-        method = "Linear trend"
+        method = "Seasonal trend"
         values = [item["billed"] for item in parsed]
         n = len(values)
         xs = list(range(n))
@@ -334,21 +336,41 @@ def forecast_billing(months_data, forecast_horizon=None):
             slope = (n * sum_xy - sum_x * sum_y) / denom
             intercept = (sum_y - slope * sum_x) / n
 
-        for i, val in enumerate(values):
-            residuals.append(val - (slope * i + intercept))
+        # Compute seasonal factors (average residual per month-of-year)
+        seasonal_sum = defaultdict(float)
+        seasonal_count = defaultdict(int)
+        for i, item in enumerate(parsed):
+            trend_val = slope * i + intercept
+            seasonal_sum[item["month"]] += item["billed"] - trend_val
+            seasonal_count[item["month"]] += 1
+
+        seasonal_factor = {}
+        for moy in range(1, 13):
+            seasonal_factor[moy] = (
+                seasonal_sum[moy] / seasonal_count[moy]
+                if seasonal_count[moy] > 0
+                else 0.0
+            )
+
+        # Residuals with seasonal adjustment (for confidence bands)
+        for i, item in enumerate(parsed):
+            fitted = slope * i + intercept + seasonal_factor.get(item["month"], 0.0)
+            residuals.append(item["billed"] - fitted)
 
         last = parsed[-1]
         for step in range(1, forecast_horizon + 1):
             future_month = last["month"] + step
             future_year = last["year"] + (future_month - 1) // 12
             future_month = ((future_month - 1) % 12) + 1
-            predicted = max(0, slope * (n - 1 + step) + intercept)
+            trend_prediction = slope * (n - 1 + step) + intercept
+            seasonal_adj = seasonal_factor.get(future_month, 0.0)
+            predicted = max(0, trend_prediction + seasonal_adj)
             key = f"{future_year}-{future_month:02d}"
             forecasts.append({
                 "key": key,
                 "label": f"{month_name[future_month]} {future_year}",
                 "billed": round(predicted, 2),
-                "source": "Trend projection",
+                "source": "Seasonal projection",
             })
 
     if len(residuals) > 1:
