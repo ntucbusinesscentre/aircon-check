@@ -520,7 +520,7 @@
     }
 
     function roomCostsForMonths(data, months) {
-        if (!data.room_costs_by_month) return [...(data.room_costs || [])].sort(compareRoomsByLevel);
+        if (!data.room_costs_by_month) return [...(data.room_costs || [])].sort(compareRoomsByVenueOrder);
 
         const totals = new Map();
         months.forEach((month) => {
@@ -533,36 +533,79 @@
         return Array.from(totals.entries())
             .map(([room, amount]) => ({ room, amount }))
             .filter((row) => row.amount > 0)
-            .sort(compareRoomsByLevel);
+            .sort(compareRoomsByVenueOrder);
     }
 
-    function roomSortInfo(room) {
+    const ROOM_VENUE_ORDER = [
+        "room 700, auditorium (l7 & l8)",
+        "room 700 (auditorium)",
+        "room 700",
+        "room 701",
+        "room 702",
+        "mezzanine level 7m",
+        "mezzanine",
+        "room 801",
+        "level 9 (room 901, 902 & 903)",
+        "room 901",
+        "room 902",
+        "room 903",
+        "level 10 (room 1001 & 1002)",
+        "level 10 room 1001/1002",
+        "level 10 (room 1001, 1002 & 1003)",
+        "room 1001",
+        "room 1002",
+        "room 1003",
+        "room 1104",
+        "room 1105",
+        "room 1204",
+        "room 1204 (level 12)",
+        "level 13",
+    ];
+
+    function normaliseRoomLabel(room) {
+        return String(room || "").toLowerCase().replace(/\s+/g, " ").trim();
+    }
+
+    function roomVenueRank(room) {
+        const normalised = normaliseRoomLabel(room);
+        const exactIndex = ROOM_VENUE_ORDER.indexOf(normalised);
+        if (exactIndex !== -1) return exactIndex;
+
+        if (normalised.includes("auditorium") || normalised.includes("room 700")) return 0;
+        if (normalised.includes("mezzanine") || normalised.includes("7m")) return 5;
+        if (normalised.includes("level 9")) return 8;
+        if (normalised.includes("level 10")) return 12;
+        if (normalised.includes("level 13")) return 22;
+
+        const roomMatch = normalised.match(/\b(\d{3,4})\b/);
+        if (!roomMatch) return ROOM_VENUE_ORDER.length + 99;
+
+        const roomNumber = Number(roomMatch[1]);
+        const knownRoom = ROOM_VENUE_ORDER.findIndex((label) => label.includes(String(roomNumber)));
+        return knownRoom === -1 ? ROOM_VENUE_ORDER.length + roomNumber : knownRoom;
+    }
+
+    function roomLevel(room) {
         const text = String(room || "");
         const lower = text.toLowerCase();
         const roomMatch = text.match(/\b(\d{3,4})\b/);
         const roomNumber = roomMatch ? Number(roomMatch[1]) : null;
-        let level = 99;
 
-        if (lower.includes("mezzanine") || lower.includes("7m")) level = 7;
-        else if (lower.includes("auditorium")) level = 7;
-        else if (lower.includes("level 13")) level = 13;
-        else if (roomNumber !== null) level = roomNumber >= 1000 ? Math.floor(roomNumber / 100) : Math.floor(roomNumber / 100);
+        if (lower.includes("mezzanine") || lower.includes("7m")) return 7;
+        if (lower.includes("auditorium")) return 7;
+        if (lower.includes("level 9")) return 9;
+        if (lower.includes("level 10")) return 10;
+        if (lower.includes("level 12")) return 12;
+        if (lower.includes("level 13")) return 13;
+        if (roomNumber !== null) return roomNumber >= 1000 ? Math.floor(roomNumber / 100) : Math.floor(roomNumber / 100);
 
-        return {
-            level,
-            roomNumber: roomNumber || level * 100,
-            name: lower,
-        };
+        return 99;
     }
 
-    function compareRoomsByLevel(a, b) {
-        const roomA = roomSortInfo(a.room);
-        const roomB = roomSortInfo(b.room);
+    function compareRoomsByVenueOrder(a, b) {
         return (
-            roomA.level - roomB.level ||
-            roomA.roomNumber - roomB.roomNumber ||
-            roomB.amount - roomA.amount ||
-            roomA.name.localeCompare(roomB.name)
+            roomVenueRank(a.room) - roomVenueRank(b.room) ||
+            normaliseRoomLabel(a.room).localeCompare(normaliseRoomLabel(b.room))
         );
     }
 
@@ -579,7 +622,7 @@
         const usedByLevel = new Map();
 
         return roomCosts.map((row, index) => {
-            const level = roomSortInfo(row.room).level;
+            const level = roomLevel(row.room);
             const palette = levelPalettes[level] || [`hsl(${(index * 47) % 360}, 72%, 62%)`];
             const used = usedByLevel.get(level) || 0;
             usedByLevel.set(level, used + 1);
