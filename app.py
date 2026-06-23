@@ -170,7 +170,7 @@ def infer_month_key(filename, recon_rows):
 # Maps individual room numbers to a canonical display label.
 # Rooms on the same floor that are always booked together share a group.
 ROOM_GROUPS = {
-    700:  "Room 700 (Auditorium)",
+    700:  "Room 700, Auditorium (L7 & L8)",
     701:  "Rooms 701/702",
     702:  "Rooms 701/702",
     801:  "Rooms 801/802",
@@ -233,25 +233,66 @@ def clean_room_labels(value):
         return ["Unknown"]
 
     normalized = re.sub(r"\s+", " ", text)
-    found = []
+    compact = re.sub(r"[^a-z0-9]", "", normalized.lower())
 
-    compact_room_matches = re.findall(r"\b(?:room|rm)\s*(\d)\s*[- ]?\s*(\d{2})\b", normalized, flags=re.I)
-    found.extend(int(f"{floor}{suffix}") for floor, suffix in compact_room_matches)
+    if re.search(r"mezzanine|(?:^|\b)7\s*M(?:\b|$)", normalized, re.I) or "level7m" in compact:
+        return ["Mezzanine Level 7M"]
 
-    found.extend(int(n) for n in re.findall(r"\d+", normalized))
-    room_numbers = sorted(set(n for n in found if 100 <= n <= 9999))
+    room_aliases = {
+        700: ["700", "70 0", "7 00", "auditorium"],
+        701: ["701", "70 1", "7 01"],
+        702: ["702", "70 2", "7 02"],
+        801: ["801", "80 1", "8 01", "802", "80 2", "8 02"],
+        901: ["901", "90 1", "9 01"],
+        902: ["902", "90 2", "9 02"],
+        903: ["903", "90 3", "9 03"],
+        1001: ["1001", "10 01"],
+        1002: ["1002", "10 02"],
+        1003: ["1003", "10 03"],
+        1104: ["1104", "11 04", "room 104"],
+        1105: ["1105", "11 05", "room 105"],
+    }
+    room_labels = {
+        700: "Room 700, Auditorium (L7 & L8)",
+        701: "Room 701",
+        702: "Room 702",
+        801: "Room 801",
+        901: "Room 901",
+        902: "Room 902",
+        903: "Room 903",
+        1001: "Room 1001",
+        1002: "Room 1002",
+        1003: "Room 1003",
+        1104: "Room 1104",
+        1105: "Room 1105",
+    }
 
-    if room_numbers:
-        labels = []
-        for room in room_numbers:
-            if room == 700 and re.search(r"auditorium", normalized, re.I):
-                labels.append("Room 700 (Auditorium)")
-            else:
-                labels.append(f"Room {room}")
-        return labels
+    matched_rooms = []
+    for room, aliases in room_aliases.items():
+        for alias in aliases:
+            alias_compact = re.sub(r"[^a-z0-9]", "", alias.lower())
+            if alias_compact and alias_compact in compact:
+                matched_rooms.append(room)
+                break
 
-    if re.search(r"mezzanine|(?:^|\b)7\s*M(?:\b|$)", normalized, re.I):
-        return ["Mezzanine"]
+    if "level9" in compact and not any(room in matched_rooms for room in (901, 902, 903)):
+        matched_rooms.extend([901, 902, 903])
+
+    if "level10" in compact:
+        for room in (1001, 1002):
+            if room not in matched_rooms:
+                matched_rooms.append(room)
+        if "1003" in compact and 1003 not in matched_rooms:
+            matched_rooms.append(1003)
+
+    if "level13" in compact or any(token in compact for token in ("1304", "1305", "13041305")):
+        return ["Level 13"]
+
+    if matched_rooms:
+        return [room_labels[room] for room in sorted(set(matched_rooms), key=matched_rooms.index)]
+
+    if "level11" in compact:
+        return ["Room 1104", "Room 1105"]
 
     return [normalized]
 
@@ -514,6 +555,7 @@ def legacy_forecast_billing(months_data, forecast_horizon=6):
 def analyse_workbooks(uploaded_files):
     monthly = {}
     room_costs = defaultdict(float)
+    room_costs_by_month = defaultdict(lambda: defaultdict(float))
     overlap_by_month = defaultdict(float)
     requestors = defaultdict(lambda: {"count": 0, "amount": 0.0})
     totals = {
@@ -608,6 +650,7 @@ def analyse_workbooks(uploaded_files):
             expected_per_room = expected / len(rooms) if rooms else expected
             for room in rooms:
                 room_costs[room] += expected_per_room
+                room_costs_by_month[month_key][room] += expected_per_room
             savings = overlap_hours * 120.0
             bucket["overlap_savings"] += savings
             totals["overlap_savings"] += savings
@@ -634,6 +677,13 @@ def analyse_workbooks(uploaded_files):
             {"room": room, "amount": round(amount, 2)}
             for room, amount in sorted(room_costs.items(), key=lambda item: item[1], reverse=True)
         ],
+        "room_costs_by_month": {
+            key: [
+                {"room": room, "amount": round(amount, 2)}
+                for room, amount in sorted(rooms.items(), key=lambda item: item[1], reverse=True)
+            ]
+            for key, rooms in sorted(room_costs_by_month.items())
+        },
         "requestors": [
             {"name": name, "count": data["count"], "amount": round(data["amount"], 2)}
             for name, data in sorted(requestors.items(), key=lambda item: item[1]["count"], reverse=True)[:10]
