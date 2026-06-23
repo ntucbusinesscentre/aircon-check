@@ -14,9 +14,9 @@
     let charts = {};
     let currentAnalyticsData = null;
     let monthWindowStart = null;
+    let monthWindowEnd = null;
 
     const qs = (id) => document.getElementById(id);
-    const MONTH_WINDOW_SPAN = 12;
     const MONTH_NAMES = [
         "January", "February", "March", "April", "May", "June",
         "July", "August", "September", "October", "November", "December",
@@ -416,7 +416,7 @@
         showSection("analytics-results");
         chartDefaults();
         currentAnalyticsData = data;
-        monthWindowStart = getDefaultMonthWindowStart(data);
+        setDefaultMonthWindow(data);
 
         qs("analytics-subtitle").textContent = `${data.files.length} reconciled report${data.files.length === 1 ? "" : "s"} analysed`;
         renderKpis(data);
@@ -440,19 +440,15 @@
         return { min: Math.min(...indices), max: Math.max(...indices) };
     }
 
-    function getDefaultMonthWindowStart(data) {
+    function setDefaultMonthWindow(data) {
         const bounds = getTimelineBounds(data);
-        if (!bounds) return null;
-        return getMaxMonthWindowStart(bounds);
-    }
-
-    function getMaxMonthWindowStart(bounds) {
-        return Math.max(bounds.min, bounds.max - MONTH_WINDOW_SPAN);
+        monthWindowStart = bounds ? bounds.min : null;
+        monthWindowEnd = bounds ? bounds.max : null;
     }
 
     function getMonthWindow() {
-        if (monthWindowStart === null) return null;
-        return { start: monthWindowStart, end: monthWindowStart + MONTH_WINDOW_SPAN };
+        if (monthWindowStart === null || monthWindowEnd === null) return null;
+        return { start: monthWindowStart, end: monthWindowEnd };
     }
 
     function setupMonthWindowControls(data) {
@@ -494,7 +490,10 @@
         const bounds = getTimelineBounds(currentAnalyticsData);
         const requested = monthKeyToIndex(key);
         if (!bounds || requested === null) return;
-        monthWindowStart = Math.min(Math.max(requested, bounds.min), getMaxMonthWindowStart(bounds));
+        monthWindowStart = Math.min(Math.max(requested, bounds.min), bounds.max);
+        if (monthWindowEnd === null || monthWindowEnd < monthWindowStart) {
+            monthWindowEnd = monthWindowStart;
+        }
         syncMonthWindowControls();
         redrawAnalyticsCharts();
     }
@@ -503,7 +502,10 @@
         const bounds = getTimelineBounds(currentAnalyticsData);
         const requested = monthKeyToIndex(key);
         if (!bounds || requested === null) return;
-        monthWindowStart = Math.min(Math.max(requested - MONTH_WINDOW_SPAN, bounds.min), getMaxMonthWindowStart(bounds));
+        monthWindowEnd = Math.min(Math.max(requested, bounds.min), bounds.max);
+        if (monthWindowStart === null || monthWindowStart > monthWindowEnd) {
+            monthWindowStart = monthWindowEnd;
+        }
         syncMonthWindowControls();
         redrawAnalyticsCharts();
     }
@@ -518,7 +520,7 @@
     }
 
     function roomCostsForMonths(data, months) {
-        if (!data.room_costs_by_month) return data.room_costs || [];
+        if (!data.room_costs_by_month) return [...(data.room_costs || [])].sort(compareRoomsByLevel);
 
         const totals = new Map();
         months.forEach((month) => {
@@ -531,18 +533,58 @@
         return Array.from(totals.entries())
             .map(([room, amount]) => ({ room, amount }))
             .filter((row) => row.amount > 0)
-            .sort((a, b) => b.amount - a.amount);
+            .sort(compareRoomsByLevel);
     }
 
-    function chartColors(count) {
-        const palette = [
-            "#4ECDC4", "#6C63FF", "#A78BFA", "#FBBF24", "#FB923C", "#F87171",
-            "#38BDF8", "#34D399", "#F472B6", "#C084FC", "#FACC15", "#60A5FA",
-            "#2DD4BF", "#A3E635", "#F97316", "#E879F9", "#22C55E", "#818CF8",
-        ];
-        return Array.from({ length: count }, (_, index) => (
-            palette[index] || `hsl(${(index * 47) % 360}, 72%, 62%)`
-        ));
+    function roomSortInfo(room) {
+        const text = String(room || "");
+        const lower = text.toLowerCase();
+        const roomMatch = text.match(/\b(\d{3,4})\b/);
+        const roomNumber = roomMatch ? Number(roomMatch[1]) : null;
+        let level = 99;
+
+        if (lower.includes("mezzanine") || lower.includes("7m")) level = 7;
+        else if (lower.includes("auditorium")) level = 7;
+        else if (lower.includes("level 13")) level = 13;
+        else if (roomNumber !== null) level = roomNumber >= 1000 ? Math.floor(roomNumber / 100) : Math.floor(roomNumber / 100);
+
+        return {
+            level,
+            roomNumber: roomNumber || level * 100,
+            name: lower,
+        };
+    }
+
+    function compareRoomsByLevel(a, b) {
+        const roomA = roomSortInfo(a.room);
+        const roomB = roomSortInfo(b.room);
+        return (
+            roomA.level - roomB.level ||
+            roomA.roomNumber - roomB.roomNumber ||
+            roomB.amount - roomA.amount ||
+            roomA.name.localeCompare(roomB.name)
+        );
+    }
+
+    function roomCostColors(roomCosts) {
+        const levelPalettes = {
+            7: ["#14B8A6", "#2DD4BF", "#5EEAD4", "#99F6E4"],
+            8: ["#4F46E5", "#6366F1", "#818CF8", "#A5B4FC"],
+            9: ["#F59E0B", "#FBBF24", "#FCD34D", "#FDE68A"],
+            10: ["#16A34A", "#22C55E", "#4ADE80", "#86EFAC"],
+            11: ["#EF4444", "#F87171", "#FCA5A5"],
+            12: ["#F97316", "#FB923C", "#FDBA74"],
+            13: ["#8B5CF6", "#A78BFA", "#C4B5FD"],
+        };
+        const usedByLevel = new Map();
+
+        return roomCosts.map((row, index) => {
+            const level = roomSortInfo(row.room).level;
+            const palette = levelPalettes[level] || [`hsl(${(index * 47) % 360}, 72%, 62%)`];
+            const used = usedByLevel.get(level) || 0;
+            usedByLevel.set(level, used + 1);
+            return palette[used % palette.length];
+        });
     }
 
     function redrawAnalyticsCharts() {
@@ -619,7 +661,7 @@
                 labels: roomCosts.map((r) => r.room),
                 datasets: [{
                     data: roomCosts.map((r) => r.amount),
-                    backgroundColor: chartColors(roomCosts.length),
+                    backgroundColor: roomCostColors(roomCosts),
                 }],
             },
             options: { responsive: true, plugins: { legend: { position: "bottom" } } },
@@ -844,6 +886,7 @@
         analyticsFiles.clear();
         currentAnalyticsData = null;
         monthWindowStart = null;
+        monthWindowEnd = null;
         monthWindowControls.classList.add("hidden");
         renderAnalyticsFileList();
     });
