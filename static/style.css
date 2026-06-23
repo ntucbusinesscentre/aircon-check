@@ -580,7 +580,7 @@ main#app {
     background: var(--bg-card);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
-    padding: 16px 14px;
+    padding: 17px 16px;
     text-align: center;
     transition: var(--transition);
     position: relative;
@@ -604,10 +604,11 @@ main#app {
 }
 
 .summary-card .card-value {
-    font-size: 1.75rem;
+    font-size: clamp(1.25rem, 2.15vw, 1.75rem);
     font-weight: 700;
     line-height: 1;
     margin-bottom: 4px;
+    white-space: nowrap;
 }
 
 .summary-card .card-label {
@@ -709,7 +710,7 @@ main#app {
 
 /* ---------- Analytics ---------- */
 body:has(.analytics-results-section:not(.hidden)) main#app {
-    max-width: 1120px;
+    max-width: 1220px;
 }
 
 .analytics-results-section {
@@ -717,7 +718,21 @@ body:has(.analytics-results-section:not(.hidden)) main#app {
 }
 
 .analytics-kpis {
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 12px;
+}
+
+.analytics-kpis .summary-card {
+    min-height: 104px;
+}
+
+.analytics-kpis .summary-card .card-value {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    font-size: clamp(0.95rem, 1.45vw, 1.35rem);
+    letter-spacing: 0;
+    text-overflow: clip;
 }
 
 .month-window-controls {
