@@ -226,6 +226,36 @@ def clean_room_label(value):
     return re.sub(r"\s+", " ", text)
 
 
+def clean_room_labels(value):
+    """Return separate room labels for room cost ranking from PDF rows."""
+    text = str(value or "").strip()
+    if not text:
+        return ["Unknown"]
+
+    normalized = re.sub(r"\s+", " ", text)
+    found = []
+
+    compact_room_matches = re.findall(r"\b(?:room|rm)\s*(\d)\s*[- ]?\s*(\d{2})\b", normalized, flags=re.I)
+    found.extend(int(f"{floor}{suffix}") for floor, suffix in compact_room_matches)
+
+    found.extend(int(n) for n in re.findall(r"\d+", normalized))
+    room_numbers = sorted(set(n for n in found if 100 <= n <= 9999))
+
+    if room_numbers:
+        labels = []
+        for room in room_numbers:
+            if room == 700 and re.search(r"auditorium", normalized, re.I):
+                labels.append("Room 700 (Auditorium)")
+            else:
+                labels.append(f"Room {room}")
+        return labels
+
+    if re.search(r"mezzanine|(?:^|\b)7\s*M(?:\b|$)", normalized, re.I):
+        return ["Mezzanine"]
+
+    return [normalized]
+
+
 
 def forecast_billing(months_data, forecast_horizon=None):
     """
@@ -572,10 +602,12 @@ def analyse_workbooks(uploaded_files):
             requestors[requestor]["amount"] += amount
 
         for row in pdf_rows:
-            room = clean_room_label(row.get("Location (PDF)"))
+            rooms = clean_room_labels(row.get("Location (PDF)"))
             expected = to_float(row.get("Expected $"))
             overlap_hours = to_float(row.get("Overlap Hrs"))
-            room_costs[room] += expected
+            expected_per_room = expected / len(rooms) if rooms else expected
+            for room in rooms:
+                room_costs[room] += expected_per_room
             savings = overlap_hours * 120.0
             bucket["overlap_savings"] += savings
             totals["overlap_savings"] += savings
@@ -600,7 +632,7 @@ def analyse_workbooks(uploaded_files):
         "forecast": forecast,
         "room_costs": [
             {"room": room, "amount": round(amount, 2)}
-            for room, amount in sorted(room_costs.items(), key=lambda item: item[1], reverse=True)[:12]
+            for room, amount in sorted(room_costs.items(), key=lambda item: item[1], reverse=True)
         ],
         "requestors": [
             {"name": name, "count": data["count"], "amount": round(data["amount"], 2)}
