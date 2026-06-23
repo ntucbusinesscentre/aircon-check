@@ -720,6 +720,56 @@ body:has(.analytics-results-section:not(.hidden)) main#app {
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
+.month-window-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 18px 0;
+    padding: 14px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+}
+
+.control-label {
+    display: block;
+    color: var(--text-primary);
+    font-size: 0.84rem;
+    font-weight: 700;
+}
+
+.control-summary {
+    display: block;
+    margin-top: 3px;
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+}
+
+.month-window-selects {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.month-window-selects label {
+    display: grid;
+    gap: 5px;
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.month-window-selects select {
+    min-width: 160px;
+    padding: 8px 10px;
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    font: inherit;
+}
+
 .chart-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -932,6 +982,16 @@ body:has(.analytics-results-section:not(.hidden)) main#app {
 
     .chart-panel {
         min-height: 280px;
+    }
+
+    .month-window-controls,
+    .month-window-selects {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .month-window-selects select {
+        width: 100%;
     }
 
 }

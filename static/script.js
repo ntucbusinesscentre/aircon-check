@@ -443,6 +443,10 @@
     function getDefaultMonthWindowStart(data) {
         const bounds = getTimelineBounds(data);
         if (!bounds) return null;
+        return getMaxMonthWindowStart(bounds);
+    }
+
+    function getMaxMonthWindowStart(bounds) {
         return Math.max(bounds.min, bounds.max - MONTH_WINDOW_SPAN);
     }
 
@@ -453,7 +457,7 @@
 
     function setupMonthWindowControls(data) {
         const bounds = getTimelineBounds(data);
-        if (!bounds || bounds.max - bounds.min <= MONTH_WINDOW_SPAN) {
+        if (!bounds) {
             monthWindowControls.classList.add("hidden");
             return;
         }
@@ -490,7 +494,7 @@
         const bounds = getTimelineBounds(currentAnalyticsData);
         const requested = monthKeyToIndex(key);
         if (!bounds || requested === null) return;
-        monthWindowStart = Math.min(Math.max(requested, bounds.min), bounds.max - MONTH_WINDOW_SPAN);
+        monthWindowStart = Math.min(Math.max(requested, bounds.min), getMaxMonthWindowStart(bounds));
         syncMonthWindowControls();
         redrawAnalyticsCharts();
     }
@@ -499,7 +503,7 @@
         const bounds = getTimelineBounds(currentAnalyticsData);
         const requested = monthKeyToIndex(key);
         if (!bounds || requested === null) return;
-        monthWindowStart = Math.min(Math.max(requested - MONTH_WINDOW_SPAN, bounds.min), bounds.max - MONTH_WINDOW_SPAN);
+        monthWindowStart = Math.min(Math.max(requested - MONTH_WINDOW_SPAN, bounds.min), getMaxMonthWindowStart(bounds));
         syncMonthWindowControls();
         redrawAnalyticsCharts();
     }
@@ -511,6 +515,23 @@
             const index = monthKeyToIndex(item.key);
             return index === null || (index >= windowRange.start && index <= windowRange.end);
         });
+    }
+
+    function roomCostsForMonths(data, months) {
+        if (!data.room_costs_by_month) return data.room_costs || [];
+
+        const totals = new Map();
+        months.forEach((month) => {
+            const rows = data.room_costs_by_month[month.key] || [];
+            rows.forEach((row) => {
+                totals.set(row.room, (totals.get(row.room) || 0) + Number(row.amount || 0));
+            });
+        });
+
+        return Array.from(totals.entries())
+            .map(([room, amount]) => ({ room, amount }))
+            .filter((row) => row.amount > 0)
+            .sort((a, b) => b.amount - a.amount);
     }
 
     function chartColors(count) {
@@ -564,6 +585,7 @@
 
     function renderCharts(data, months) {
         const labels = months.map((m) => m.label);
+        const roomCosts = roomCostsForMonths(data, months);
         makeChart("monthlyBillingChart", {
             type: "bar",
             data: {
@@ -594,10 +616,10 @@
         makeChart("roomCostChart", {
             type: "doughnut",
             data: {
-                labels: data.room_costs.map((r) => r.room),
+                labels: roomCosts.map((r) => r.room),
                 datasets: [{
-                    data: data.room_costs.map((r) => r.amount),
-                    backgroundColor: chartColors(data.room_costs.length),
+                    data: roomCosts.map((r) => r.amount),
+                    backgroundColor: chartColors(roomCosts.length),
                 }],
             },
             options: { responsive: true, plugins: { legend: { position: "bottom" } } },
