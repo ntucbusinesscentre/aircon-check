@@ -1010,3 +1010,32 @@ body:has(.analytics-results-section:not(.hidden)) main#app {
     }
 
 }
+
+@media print {
+    * {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    html,
+    body {
+        background: var(--bg-primary) !important;
+        color: var(--text-primary) !important;
+    }
+
+    body::before {
+        display: none;
+    }
+
+    .app-header,
+    .card,
+    .summary-card,
+    .results-details,
+    .chart-panel,
+    .month-window-controls,
+    .data-table {
+        background: var(--bg-card) !important;
+        border-color: var(--border-subtle) !important;
+        box-shadow: none !important;
+    }
+}
