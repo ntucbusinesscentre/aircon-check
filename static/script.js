@@ -12,8 +12,15 @@
     let currentDownloadUrl = null;
     let currentMode = "reconcile";
     let charts = {};
+    let currentAnalyticsData = null;
+    let monthWindowStart = null;
 
     const qs = (id) => document.getElementById(id);
+    const MONTH_WINDOW_SPAN = 12;
+    const MONTH_NAMES = [
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December",
+    ];
 
     const tabReconcile = qs("tab-reconcile");
     const tabAnalytics = qs("tab-analytics");
@@ -50,6 +57,10 @@
     const btnAddAnalytics = qs("btn-add-analytics");
     const btnClearAnalytics = qs("btn-clear-analytics");
     const btnRunAnalytics = qs("btn-run-analytics");
+    const monthWindowControls = qs("month-window-controls");
+    const monthWindowStartSelect = qs("month-window-start");
+    const monthWindowEndSelect = qs("month-window-end");
+    const monthWindowSummary = qs("month-window-summary");
 
     const RECON_EXTENSIONS = new Set(["pdf", "xlsx"]);
 
@@ -73,6 +84,24 @@
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
         })}`;
+    }
+
+    function monthKeyToIndex(key) {
+        const match = String(key || "").match(/^(\d{4})-(\d{2})$/);
+        if (!match) return null;
+        return Number(match[1]) * 12 + Number(match[2]) - 1;
+    }
+
+    function monthIndexToKey(index) {
+        const year = Math.floor(index / 12);
+        const month = (index % 12) + 1;
+        return `${year}-${String(month).padStart(2, "0")}`;
+    }
+
+    function monthIndexToLabel(index) {
+        const year = Math.floor(index / 12);
+        const month = index % 12;
+        return `${MONTH_NAMES[month]} ${year}`;
     }
 
     function isRelevantReconFile(filename) {
@@ -385,14 +414,121 @@
 
     function showAnalytics(data) {
         showSection("analytics-results");
-        destroyCharts();
         chartDefaults();
+        currentAnalyticsData = data;
+        monthWindowStart = getDefaultMonthWindowStart(data);
 
         qs("analytics-subtitle").textContent = `${data.files.length} reconciled report${data.files.length === 1 ? "" : "s"} analysed`;
         renderKpis(data);
-        renderCharts(data);
-        renderForecast(data);
+        setupMonthWindowControls(data);
+        redrawAnalyticsCharts();
         renderRequestors(data.requestors);
+    }
+
+    function getTimelineBounds(data) {
+        const indices = [];
+        data.months.forEach((item) => {
+            const index = monthKeyToIndex(item.key);
+            if (index !== null) indices.push(index);
+        });
+        ((data.forecast && data.forecast.items) || []).forEach((item) => {
+            const index = monthKeyToIndex(item.key);
+            if (index !== null) indices.push(index);
+        });
+
+        if (!indices.length) return null;
+        return { min: Math.min(...indices), max: Math.max(...indices) };
+    }
+
+    function getDefaultMonthWindowStart(data) {
+        const bounds = getTimelineBounds(data);
+        if (!bounds) return null;
+        return Math.max(bounds.min, bounds.max - MONTH_WINDOW_SPAN);
+    }
+
+    function getMonthWindow() {
+        if (monthWindowStart === null) return null;
+        return { start: monthWindowStart, end: monthWindowStart + MONTH_WINDOW_SPAN };
+    }
+
+    function setupMonthWindowControls(data) {
+        const bounds = getTimelineBounds(data);
+        if (!bounds || bounds.max - bounds.min <= MONTH_WINDOW_SPAN) {
+            monthWindowControls.classList.add("hidden");
+            return;
+        }
+
+        monthWindowControls.classList.remove("hidden");
+        monthWindowStartSelect.innerHTML = "";
+        monthWindowEndSelect.innerHTML = "";
+
+        for (let index = bounds.min; index <= bounds.max; index += 1) {
+            const startOption = document.createElement("option");
+            startOption.value = monthIndexToKey(index);
+            startOption.textContent = monthIndexToLabel(index);
+            monthWindowStartSelect.appendChild(startOption);
+
+            const endOption = document.createElement("option");
+            endOption.value = monthIndexToKey(index);
+            endOption.textContent = monthIndexToLabel(index);
+            monthWindowEndSelect.appendChild(endOption);
+        }
+
+        syncMonthWindowControls();
+    }
+
+    function syncMonthWindowControls() {
+        const windowRange = getMonthWindow();
+        if (!windowRange) return;
+
+        monthWindowStartSelect.value = monthIndexToKey(windowRange.start);
+        monthWindowEndSelect.value = monthIndexToKey(windowRange.end);
+        monthWindowSummary.textContent = `${monthIndexToLabel(windowRange.start)} to ${monthIndexToLabel(windowRange.end)}`;
+    }
+
+    function setMonthWindowFromStart(key) {
+        const bounds = getTimelineBounds(currentAnalyticsData);
+        const requested = monthKeyToIndex(key);
+        if (!bounds || requested === null) return;
+        monthWindowStart = Math.min(Math.max(requested, bounds.min), bounds.max - MONTH_WINDOW_SPAN);
+        syncMonthWindowControls();
+        redrawAnalyticsCharts();
+    }
+
+    function setMonthWindowFromEnd(key) {
+        const bounds = getTimelineBounds(currentAnalyticsData);
+        const requested = monthKeyToIndex(key);
+        if (!bounds || requested === null) return;
+        monthWindowStart = Math.min(Math.max(requested - MONTH_WINDOW_SPAN, bounds.min), bounds.max - MONTH_WINDOW_SPAN);
+        syncMonthWindowControls();
+        redrawAnalyticsCharts();
+    }
+
+    function filterMonthItems(items) {
+        const windowRange = getMonthWindow();
+        if (!windowRange) return items;
+        return items.filter((item) => {
+            const index = monthKeyToIndex(item.key);
+            return index === null || (index >= windowRange.start && index <= windowRange.end);
+        });
+    }
+
+    function chartColors(count) {
+        const palette = [
+            "#4ECDC4", "#6C63FF", "#A78BFA", "#FBBF24", "#FB923C", "#F87171",
+            "#38BDF8", "#34D399", "#F472B6", "#C084FC", "#FACC15", "#60A5FA",
+            "#2DD4BF", "#A3E635", "#F97316", "#E879F9", "#22C55E", "#818CF8",
+        ];
+        return Array.from({ length: count }, (_, index) => (
+            palette[index] || `hsl(${(index * 47) % 360}, 72%, 62%)`
+        ));
+    }
+
+    function redrawAnalyticsCharts() {
+        if (!currentAnalyticsData) return;
+        destroyCharts();
+        renderCharts(currentAnalyticsData, filterMonthItems(currentAnalyticsData.months));
+        renderForecast(currentAnalyticsData);
     }
 
     function renderKpis(data) {
@@ -426,13 +562,13 @@
         });
     }
 
-    function renderCharts(data) {
-        const labels = data.months.map((m) => m.label);
+    function renderCharts(data, months) {
+        const labels = months.map((m) => m.label);
         makeChart("monthlyBillingChart", {
             type: "bar",
             data: {
                 labels,
-                datasets: [{ label: "Billed", data: data.months.map((m) => m.billed), backgroundColor: "#4ECDC4" }],
+                datasets: [{ label: "Billed", data: months.map((m) => m.billed), backgroundColor: "#4ECDC4" }],
             },
             options: { responsive: true, plugins: { legend: { display: false } } },
         });
@@ -442,11 +578,11 @@
             data: {
                 labels,
                 datasets: [
-                    { label: "Matched", data: data.months.map((m) => m.matched), backgroundColor: "#4ECDC4" },
-                    { label: "Zero-Charge", data: data.months.map((m) => m.zero_charge), backgroundColor: "#A78BFA" },
-                    { label: "Unclear", data: data.months.map((m) => m.unclear), backgroundColor: "#FBBF24" },
-                    { label: "Mismatch", data: data.months.map((m) => m.mismatch), backgroundColor: "#F87171" },
-                    { label: "Missing", data: data.months.map((m) => m.missing), backgroundColor: "#FB923C" },
+                    { label: "Matched", data: months.map((m) => m.matched), backgroundColor: "#4ECDC4" },
+                    { label: "Zero-Charge", data: months.map((m) => m.zero_charge), backgroundColor: "#A78BFA" },
+                    { label: "Unclear", data: months.map((m) => m.unclear), backgroundColor: "#FBBF24" },
+                    { label: "Mismatch", data: months.map((m) => m.mismatch), backgroundColor: "#F87171" },
+                    { label: "Missing", data: months.map((m) => m.missing), backgroundColor: "#FB923C" },
                 ],
             },
             options: {
@@ -461,7 +597,7 @@
                 labels: data.room_costs.map((r) => r.room),
                 datasets: [{
                     data: data.room_costs.map((r) => r.amount),
-                    backgroundColor: ["#4ECDC4", "#6C63FF", "#A78BFA", "#FBBF24", "#FB923C", "#F87171", "#38BDF8", "#34D399", "#F472B6", "#C084FC", "#FACC15", "#60A5FA"],
+                    backgroundColor: chartColors(data.room_costs.length),
                 }],
             },
             options: { responsive: true, plugins: { legend: { position: "bottom" } } },
@@ -473,7 +609,7 @@
                 labels,
                 datasets: [{
                     label: "Savings",
-                    data: data.months.map((m) => m.overlap_savings),
+                    data: months.map((m) => m.overlap_savings),
                     borderColor: "#A78BFA",
                     backgroundColor: "rgba(167, 139, 250, 0.18)",
                     fill: true,
@@ -489,7 +625,7 @@
                 labels,
                 datasets: [{
                     label: "Discrepancies",
-                    data: data.months.map((m) => m.unclear + m.mismatch + m.missing + m.unbilled),
+                    data: months.map((m) => m.unclear + m.mismatch + m.missing + m.unbilled),
                     backgroundColor: "#FB923C",
                 }],
             },
@@ -499,7 +635,8 @@
 
     function renderForecast(data) {
         const forecast = data.forecast || { items: [], method: "" };
-        const items = forecast.items || [];
+        const items = filterMonthItems(forecast.items || []);
+        const actualMonths = filterMonthItems(data.months);
         const method = qs("forecast-method");
         const table = qs("forecast-table");
 
@@ -510,10 +647,10 @@
             makeChart("billingForecastChart", {
                 type: "line",
                 data: {
-                    labels: data.months.map((m) => m.label),
+                    labels: actualMonths.map((m) => m.label),
                     datasets: [{
                         label: "Actual",
-                        data: data.months.map((m) => m.billed),
+                        data: actualMonths.map((m) => m.billed),
                         borderColor: "#4ECDC4",
                         backgroundColor: "rgba(78, 205, 196, 0.18)",
                         tension: 0.25,
@@ -524,13 +661,13 @@
             return;
         }
 
-        const actualLabels = data.months.map((m) => m.label);
+        const actualLabels = actualMonths.map((m) => m.label);
         const forecastLabels = items.map((m) => m.label);
         const labels = [...actualLabels, ...forecastLabels];
-        const actualData = [...data.months.map((m) => m.billed), ...items.map(() => null)];
-        const forecastData = [...data.months.map(() => null), ...items.map((m) => m.billed)];
-        const lowerData = [...data.months.map(() => null), ...items.map((m) => m.lower)];
-        const upperData = [...data.months.map(() => null), ...items.map((m) => m.upper)];
+        const actualData = [...actualMonths.map((m) => m.billed), ...items.map(() => null)];
+        const forecastData = [...actualMonths.map(() => null), ...items.map((m) => m.billed)];
+        const lowerData = [...actualMonths.map(() => null), ...items.map((m) => m.lower)];
+        const upperData = [...actualMonths.map(() => null), ...items.map((m) => m.upper)];
 
         makeChart("billingForecastChart", {
             type: "line",
@@ -683,9 +820,14 @@
     btnAddAnalytics.addEventListener("click", () => analyticsInput.click());
     btnClearAnalytics.addEventListener("click", () => {
         analyticsFiles.clear();
+        currentAnalyticsData = null;
+        monthWindowStart = null;
+        monthWindowControls.classList.add("hidden");
         renderAnalyticsFileList();
     });
     btnRunAnalytics.addEventListener("click", runAnalytics);
+    monthWindowStartSelect.addEventListener("change", () => setMonthWindowFromStart(monthWindowStartSelect.value));
+    monthWindowEndSelect.addEventListener("change", () => setMonthWindowFromEnd(monthWindowEndSelect.value));
 
     btnDownloadAgain.addEventListener("click", () => {
         if (currentDownloadUrl) triggerDownload(currentDownloadUrl);
